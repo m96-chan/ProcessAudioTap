@@ -5,6 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "proc-tap"
 version = "0.1.0"
+description = "Process-level audio tap for Windows"
+readme = "README.md"
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
@@ -16,3 +18,4 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["proctap*"]
