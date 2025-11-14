@@ -1,5 +1,6 @@
 from setuptools import setup, Extension
 from setuptools import find_packages
+import sys
 import os
 
 if os.name != "nt":
