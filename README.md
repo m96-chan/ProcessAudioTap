@@ -1,9 +1,27 @@
+<div align="center">
+
 # 📡 ProcTap
+
+**Per-Process Audio Capture for Windows**
+
+[![PyPI version](https://img.shields.io/pypi/v/proc-tap?color=blue&logo=pypi&logoColor=white)](https://pypi.org/project/proc-tap/)
+[![Python versions](https://img.shields.io/pypi/pyversions/proc-tap?logo=python&logoColor=white)](https://pypi.org/project/proc-tap/)
+[![Downloads](https://img.shields.io/pypi/dm/proc-tap?logo=pypi&logoColor=white)](https://pypi.org/project/proc-tap/)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue?logo=windows)](https://github.com/m96-chan/ProcTap)
+
+[![Build wheels](https://github.com/m96-chan/ProcTap/actions/workflows/build-wheels.yml/badge.svg)](https://github.com/m96-chan/ProcTap/actions/workflows/build-wheels.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Code style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![GitHub stars](https://img.shields.io/github/stars/m96-chan/ProcTap?style=social)](https://github.com/m96-chan/ProcTap/stargazers)
+
+---
 
 ProcTap is a Python library with a high-performance C++ backend that enables per-process audio capture on Windows 10/11 (20H1+) using ActivateAudioInterfaceAsync.
 
-It lets you capture audio from a specific process only — without system sounds or other app audio mixed in.  
+**Capture audio from a specific process only** — without system sounds or other app audio mixed in.
 Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
+
+</div>
 
 ---
 
