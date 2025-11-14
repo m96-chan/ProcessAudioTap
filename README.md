@@ -239,30 +239,6 @@ pip install -e .
 
 ---
 
-## 🔧 Project Structure
-
-```
-ProcTap/
-├─ LICENSE
-├─ README.md
-├─ pyproject.toml
-├─ setup.cfg
-├─ setup.py
-├─ src/
-│  └─ proctap/
-│     ├─ __init__.py
-│     ├─ core.py
-│     ├─ _native.cpp
-│     └─ _native.pyi
-├─ examples/
-│  └─ record_proc_to_wav.py
-└─ .github/
-   └─ workflows/
-      └─ build-wheels.yml
-```
-
----
-
 ## 🤝 Contributing
 
 Contributions are welcome! We have structured issue templates to help guide your contributions:
