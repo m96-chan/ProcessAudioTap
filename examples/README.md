@@ -34,6 +34,8 @@ This directory contains practical examples of per-process audio capture using Pr
 
 ### 1. Build and Install ProcessAudioTap
 
+**Option A: From Source** (Recommended for development)
+
 Run from the repository root directory:
 
 ```bash
@@ -44,7 +46,13 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
-**Note**: Requires Visual Studio Build Tools and Windows SDK.
+**Option B: From TestPyPI** (For testing pre-releases)
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ processaudiotap
+```
+
+**Note**: Building from source requires Visual Studio Build Tools and Windows SDK.
 
 ### 2. Install psutil
 

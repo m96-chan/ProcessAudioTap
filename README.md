@@ -30,10 +30,24 @@ Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
 
 ## 📦 Installation
 
-(Will be available after first PyPI release.)
+**From PyPI** (coming soon):
 
 ```bash
 pip install processaudiotap
+```
+
+**From TestPyPI** (for testing pre-releases):
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ processaudiotap
+```
+
+**From Source**:
+
+```bash
+git clone https://github.com/m96-chan/ProcessAudioTap
+cd ProcessAudioTap
+pip install -e .
 ```
 
 ---
