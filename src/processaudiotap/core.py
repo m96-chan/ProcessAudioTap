@@ -28,56 +28,12 @@ AudioCallback = Callable[[bytes, int], None]  # (pcm_bytes, num_frames)
 
 @dataclass
 class StreamConfig:
-    sample_rate: int = 48000
+    sample_rate: int = 44100   # Hz
     channels: int = 2
     # NOTE:
     # 現状 backend 側でバッファサイズは制御していないので
     # frames_per_buffer は「論理的なサイズ」として扱うだけ。
     frames_per_buffer: int = 480  # 10ms @ 48kHz
-
-
-class _BackendWrapper:
-    """
-    C++ native backend への薄いラッパー。
-
-    提供するインターフェース:
-        - initialize() -> bool
-        - start_capture() -> bool
-        - stop_capture() -> bool
-        - cleanup() -> None
-        - read_data() -> bytes
-    """
-
-    def __init__(self, pid: int) -> None:
-        self._pid = pid
-        logger.debug("Using native backend ProcessLoopback (C++ extension)")
-        self._backend = _NativeLoopback(pid)
-
-    def initialize(self) -> bool:
-        # C++ 側は __init__ の時点で初期化が済んでいる前提なので True を返すだけ
-        return True
-
-    def start_capture(self) -> bool:
-        self._backend.start()
-        return True
-
-    def stop_capture(self) -> bool:
-        self._backend.stop()
-        return True
-
-    def cleanup(self) -> None:
-        # C++ 側は dealloc で後片付けされるので特に何もしない
-        pass
-
-    def read_data(self) -> bytes:
-        """
-        ネイティブバックエンドからデータを読み取る。
-        データがない場合は空のbytesを返す。
-        """
-        data = self._backend.read()
-        if not data:
-            return b""
-        return data
 
 
 class ProcessAudioTap:
@@ -98,7 +54,8 @@ class ProcessAudioTap:
         self._cfg = config or StreamConfig()
         self._on_data = on_data
 
-        self._backend = _BackendWrapper(pid)
+        logger.debug("Using native backend ProcessLoopback (C++ extension)")
+        self._backend = _NativeLoopback(pid)
 
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -111,13 +68,8 @@ class ProcessAudioTap:
             # すでに start 済みなら何もしない
             return
 
-        ok = self._backend.initialize()
-        if not ok:
-            raise RuntimeError("Failed to initialize WASAPI backend")
-
-        ok = self._backend.start_capture()
-        if not ok:
-            raise RuntimeError("Failed to start WASAPI capture")
+        # Native backend は __init__ で初期化済み
+        self._backend.start()
 
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._worker, daemon=True)
@@ -131,14 +83,9 @@ class ProcessAudioTap:
             self._thread = None
 
         try:
-            self._backend.stop_capture()
+            self._backend.stop()
         except Exception:
             logger.exception("Error while stopping capture")
-
-        try:
-            self._backend.cleanup()
-        except Exception:
-            logger.exception("Error during backend cleanup")
 
     def close(self) -> None:
         self.stop()
@@ -149,6 +96,68 @@ class ProcessAudioTap:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
+
+    # --- properties -----------------------------------------------------
+
+    @property
+    def is_running(self) -> bool:
+        """Check if audio capture is currently running."""
+        return self._thread is not None and self._thread.is_alive()
+
+    @property
+    def pid(self) -> int:
+        """Get the target process ID."""
+        return self._pid
+
+    @property
+    def config(self) -> StreamConfig:
+        """Get the stream configuration (note: does not affect native backend)."""
+        return self._cfg
+
+    # --- utility methods ------------------------------------------------
+
+    def set_callback(self, callback: Optional[AudioCallback]) -> None:
+        """
+        Change the audio data callback.
+
+        Args:
+            callback: New callback function, or None to remove callback
+        """
+        self._on_data = callback
+
+    def get_format(self) -> dict[str, int]:
+        """
+        Get audio format information from the native backend.
+
+        Returns:
+            Dictionary with keys:
+            - 'sample_rate': Sample rate in Hz (e.g., 44100)
+            - 'channels': Number of channels (e.g., 2 for stereo)
+            - 'bits_per_sample': Bits per sample (e.g., 16)
+        """
+        return self._backend.get_format()
+
+    def read(self, timeout: float = 1.0) -> Optional[bytes]:
+        """
+        Synchronous API: Read one audio chunk (blocking).
+
+        Args:
+            timeout: Maximum time to wait for data in seconds
+
+        Returns:
+            PCM audio data as bytes, or None if timeout or no data
+
+        Note:
+            This is a simple synchronous alternative to the async API.
+            The capture must be started first with start().
+        """
+        if not self.is_running:
+            raise RuntimeError("Capture is not running. Call start() first.")
+
+        try:
+            return self._async_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
 
     # --- async interface ------------------------------------------------
 
@@ -169,13 +178,13 @@ class ProcessAudioTap:
     def _worker(self) -> None:
         """
         Loop:
-            data = backend.read_data()
+            data = backend.read()
             -> callback
             -> async_queue
         """
         while not self._stop_event.is_set():
             try:
-                data = self._backend.read_data()
+                data = self._backend.read()
             except Exception:
                 logger.exception("Error reading data from backend")
                 continue

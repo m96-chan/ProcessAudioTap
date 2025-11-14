@@ -1,238 +1,238 @@
-# ProcessAudioTap サンプル集
+# ProcessAudioTap Examples
 
-ProcessAudioTapライブラリの使用例を提供するディレクトリです。
+This directory provides usage examples for the ProcessAudioTap library.
 
-## 概要
+## Overview
 
-このディレクトリには、ProcessAudioTapを使用したプロセス別音声キャプチャの実例が含まれています。各サンプルは、ライブラリの機能を実際に使用する方法を示しています。
+This directory contains practical examples of per-process audio capture using ProcessAudioTap. Each sample demonstrates how to use the library's features in real-world scenarios.
 
-## システム要件
+## System Requirements
 
-- **OS**: Windows 10 (20H1以降) または Windows 11
-- **Python**: 3.10以上
-- **権限**: 管理者権限は不要
+- **OS**: Windows 10 (20H1 or later) or Windows 11
+- **Python**: 3.10 or higher
+- **Permissions**: No administrator privileges required
 
-## 必要なライブラリ
+## Required Libraries
 
-### 必須
+### Required
 
-1. **ProcessAudioTap** (このパッケージ)
-   - プロセス別音声キャプチャのコア機能
-   - ソースからビルドする必要があります
+1. **ProcessAudioTap** (this package)
+   - Core functionality for per-process audio capture
+   - Must be built from source
 
 2. **psutil**
-   - プロセス名からPIDを検索するために使用
-   - `pip install psutil` でインストール
+   - Used to find PID from process name
+   - Install with `pip install psutil`
 
-### 標準ライブラリ (インストール不要)
+### Standard Library (No Installation Required)
 
-- `wave`: WAVファイルの作成と書き込み
-- `argparse`: コマンドライン引数の解析
-- `sys`: システム操作
+- `wave`: Creating and writing WAV files
+- `argparse`: Command-line argument parsing
+- `sys`: System operations
 
-## インストール手順
+## Installation Steps
 
-### 1. ProcessAudioTapをビルド・インストール
+### 1. Build and Install ProcessAudioTap
 
-リポジトリのルートディレクトリで実行:
+Run from the repository root directory:
 
 ```bash
-# 開発モードでインストール (C++拡張をビルド)
+# Install in development mode (builds C++ extension)
 pip install -e .
 
-# または、開発用依存関係も含めてインストール
+# Or install with development dependencies
 pip install -e ".[dev]"
 ```
 
-**注意**: Visual Studio Build ToolsとWindows SDKが必要です。
+**Note**: Requires Visual Studio Build Tools and Windows SDK.
 
-### 2. psutilをインストール
+### 2. Install psutil
 
 ```bash
 pip install psutil
 ```
 
-### 3. インストールの確認
+### 3. Verify Installation
 
 ```bash
-python -c "from processaudiotap import ProcessAudioTap; print('インストール成功!')"
-python -c "import psutil; print('psutilインストール成功!')"
+python -c "from processaudiotap import ProcessAudioTap; print('Installation successful!')"
+python -c "import psutil; print('psutil installation successful!')"
 ```
 
 ---
 
-## サンプル: record_proc_to_wav.py
+## Example: record_proc_to_wav.py
 
-### 説明
+### Description
 
-特定のプロセスから音声をキャプチャしてWAVファイルに保存するサンプルです。プロセスIDまたはプロセス名を指定して、そのプロセスが出力している音声を録音できます。
+This example captures audio from a specific process and saves it to a WAV file. You can specify either a process ID or process name to record the audio output from that process.
 
-### 機能
+### Features
 
-- プロセスID (`--pid`) またはプロセス名 (`--name`) で対象プロセスを指定
-- キャプチャした音声をWAVファイルに保存
-- Enterキーまたは Ctrl+C で録音停止
-- 44.1kHz、ステレオ、16ビットPCM形式で録音
+- Specify target process by process ID (`--pid`) or process name (`--name`)
+- Save captured audio to a WAV file
+- Stop recording with Enter key or Ctrl+C
+- Records in 44.1kHz, stereo, 16-bit PCM format
 
-### 使用方法
+### Usage
 
-#### 基本構文
+#### Basic Syntax
 
 ```bash
 python examples/record_proc_to_wav.py [--pid PID | --name PROCESS_NAME] [--output OUTPUT_FILE]
 ```
 
-#### オプション
+#### Options
 
-| オプション | 型 | 必須 | 説明 |
-|-----------|-----|------|------|
-| `--pid` | 整数 | はい* | キャプチャするプロセスのID |
-| `--name` | 文字列 | はい* | キャプチャするプロセスの名前 (例: "VRChat.exe" または "VRChat") |
-| `--output` | 文字列 | いいえ | 出力WAVファイルのパス (デフォルト: "output.wav") |
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `--pid` | Integer | Yes* | Process ID to capture |
+| `--name` | String | Yes* | Process name to capture (e.g., "VRChat.exe" or "VRChat") |
+| `--output` | String | No | Output WAV file path (default: "output.wav") |
 
-\* `--pid` または `--name` のいずれか一方が必須です。
+\* Either `--pid` or `--name` is required.
 
-### 実行例
+### Examples
 
-#### 1. プロセス名で録音 (推奨)
+#### 1. Recording by Process Name (Recommended)
 
 ```bash
-# VRChatの音声を録音
+# Record audio from VRChat
 python examples/record_proc_to_wav.py --name "VRChat.exe" --output vrchat_audio.wav
 
-# Discordの音声を録音 (.exe拡張子なしでも可)
+# Record audio from Discord (works without .exe extension)
 python examples/record_proc_to_wav.py --name "Discord" --output discord_audio.wav
 
-# デフォルトの出力ファイル名 (output.wav)
+# Use default output filename (output.wav)
 python examples/record_proc_to_wav.py --name "spotify.exe"
 ```
 
-#### 2. プロセスIDで録音
+#### 2. Recording by Process ID
 
 ```bash
-# PID 1234のプロセスから録音
+# Record from process with PID 1234
 python examples/record_proc_to_wav.py --pid 1234 --output audio.wav
 ```
 
-### プロセスIDの確認方法
+### How to Find Process ID
 
-#### 方法1: タスクマネージャー
+#### Method 1: Task Manager
 
-1. `Ctrl + Shift + Esc` でタスクマネージャーを開く
-2. 「詳細」タブをクリック
-3. 「PID」列で対象プロセスのIDを確認
+1. Open Task Manager with `Ctrl + Shift + Esc`
+2. Click the "Details" tab
+3. Check the "PID" column for the target process
 
-#### 方法2: tasklistコマンド
+#### Method 2: tasklist Command
 
 ```bash
-# すべてのプロセスを表示
+# Display all processes
 tasklist
 
-# 特定のプロセス名で検索
+# Search for a specific process name
 tasklist | findstr "VRChat"
 ```
 
-#### 方法3: プロセス名を使用 (最も簡単)
+#### Method 3: Use Process Name (Easiest)
 
-`--name` オプションを使えば、PIDを調べる必要はありません。
+Using the `--name` option eliminates the need to look up the PID.
 
-### 出力ファイル形式
+### Output File Format
 
-録音されたWAVファイルの仕様:
+Specifications of the recorded WAV file:
 
-- **フォーマット**: WAV (PCM)
-- **サンプルレート**: 44,100 Hz (CD品質)
-- **チャンネル数**: 2 (ステレオ)
-- **ビット深度**: 16-bit
-- **エンコーディング**: リニアPCM
+- **Format**: WAV (PCM)
+- **Sample Rate**: 44,100 Hz (CD quality)
+- **Channels**: 2 (stereo)
+- **Bit Depth**: 16-bit
+- **Encoding**: Linear PCM
 
-### 録音の停止
+### Stopping Recording
 
-録音を停止するには:
+To stop recording:
 
-- **Enterキーを押す**、または
-- **Ctrl + C** を押す
+- **Press Enter key**, or
+- **Press Ctrl + C**
 
-録音が停止すると、WAVファイルが保存されます。
+The WAV file will be saved when recording stops.
 
 ---
 
-## トラブルシューティング
+## Troubleshooting
 
-### エラー: `ModuleNotFoundError: No module named 'processaudiotap'`
+### Error: `ModuleNotFoundError: No module named 'processaudiotap'`
 
-**原因**: ProcessAudioTapがインストールされていません。
+**Cause**: ProcessAudioTap is not installed.
 
-**解決策**:
+**Solution**:
 ```bash
 cd /path/to/ProcessAudioTap
 pip install -e .
 ```
 
-### エラー: `ModuleNotFoundError: No module named 'psutil'`
+### Error: `ModuleNotFoundError: No module named 'psutil'`
 
-**原因**: psutilがインストールされていません。
+**Cause**: psutil is not installed.
 
-**解決策**:
+**Solution**:
 ```bash
 pip install psutil
 ```
 
-### エラー: `Process 'ProcessName' not found`
+### Error: `Process 'ProcessName' not found`
 
-**原因**: 指定したプロセス名が実行されていません。
+**Cause**: The specified process name is not running.
 
-**解決策**:
-1. プロセス名が正しいか確認
-2. アプリケーションが実行中か確認
-3. `tasklist` コマンドで正確なプロセス名を確認
+**Solution**:
+1. Verify the process name is correct
+2. Ensure the application is running
+3. Use `tasklist` command to find the exact process name
 
-### エラー: `ImportError: Native extension (_native) could not be imported`
+### Error: `ImportError: Native extension (_native) could not be imported`
 
-**原因**: C++拡張がビルドされていません。
+**Cause**: C++ extension has not been built.
 
-**解決策**:
+**Solution**:
 ```bash
-# C++拡張を再ビルド
+# Rebuild the C++ extension
 pip install -e . --force-reinstall --no-deps
 ```
 
-**注意**: ProcessAudioTapはネイティブC++拡張が必須です。Visual Studio Build ToolsとWindows SDKがインストールされていることを確認してください。
+**Note**: ProcessAudioTap requires the native C++ extension. Ensure Visual Studio Build Tools and Windows SDK are installed.
 
-### 音声がキャプチャされない
+### Audio is Not Being Captured
 
-**確認事項**:
-1. 対象プロセスが実際に音声を再生しているか
-2. Windows 10が20H1以降であるか (`winver` コマンドで確認)
-3. プロセスIDまたは名前が正しいか
-
----
-
-## 追加情報
-
-### 対応する音声アプリケーション例
-
-- ゲーム: VRChat、Discord、ゲーム全般
-- メディアプレーヤー: Spotify、foobar2000、MusicBee
-- 通信アプリ: Discord、Zoom、Teams
-- ブラウザ: Chrome、Firefox、Edge (各タブごとのプロセス)
-
-### プロセス別キャプチャの利点
-
-- システム全体ではなく、特定のアプリケーションの音声のみをキャプチャ
-- 複数のアプリケーションが音声を再生していても、目的のものだけを録音可能
-- 管理者権限不要
-
-### 制限事項
-
-- **Windows専用**: macOSやLinuxでは動作しません
-- **Windows 10 20H1以降**: プロセス別キャプチャには新しいWASAPI機能が必要
-- **Python 3.10以降**: 型ヒントの機能を使用しているため
+**Things to Check**:
+1. Verify the target process is actually playing audio
+2. Ensure Windows 10 is version 20H1 or later (check with `winver` command)
+3. Verify the process ID or name is correct
 
 ---
 
-## サポート
+## Additional Information
 
-- **バグ報告**: [GitHub Issues](https://github.com/m96-chan/ProcessAudioTap/issues)
-- **ドキュメント**: プロジェクトルートの [README.md](../README.md)
-- **API詳細**: [CLAUDE.md](../CLAUDE.md)
+### Supported Audio Applications Examples
+
+- Games: VRChat, Discord, general gaming applications
+- Media Players: Spotify, foobar2000, MusicBee
+- Communication Apps: Discord, Zoom, Teams
+- Browsers: Chrome, Firefox, Edge (per-tab processes)
+
+### Benefits of Per-Process Capture
+
+- Capture audio from specific applications only, not the entire system
+- Record only the desired audio even when multiple applications are playing sound
+- No administrator privileges required
+
+### Limitations
+
+- **Windows Only**: Does not work on macOS or Linux
+- **Windows 10 20H1 or Later**: Per-process capture requires newer WASAPI features
+- **Python 3.10 or Later**: Uses type hints functionality
+
+---
+
+## Support
+
+- **Bug Reports**: [GitHub Issues](https://github.com/m96-chan/ProcessAudioTap/issues)
+- **Documentation**: [README.md](../README.md) in the project root
+- **API Details**: [CLAUDE.md](../CLAUDE.md)

@@ -15,8 +15,8 @@ Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
 - ⚡ **Uses ActivateAudioInterfaceAsync (modern WASAPI)**  
   → More stable than legacy IAudioClient2 loopback approaches
 
-- 🧵 **Low-latency, thread-safe C++ engine**  
-  → 48 kHz / stereo / 10 ms buffer supported
+- 🧵 **Low-latency, thread-safe C++ engine**
+  → 44.1 kHz / stereo / 16-bit PCM format
 
 - 🐍 **Python-friendly high-level API**
   - Callback-based streaming
@@ -90,20 +90,47 @@ asyncio.run(main())
 
 ### `class ProcessAudioTap`
 
+**Control Methods:**
+
 | Method | Description |
 |--------|-------------|
 | `start()` | Start WASAPI per-process capture |
 | `stop()` | Stop capture |
 | `close()` | Release native resources |
+
+**Data Access:**
+
+| Method | Description |
+|--------|-------------|
 | `iter_chunks()` | Async generator yielding PCM chunks |
+| `read(timeout=1.0)` | Synchronous: read one chunk (blocking) |
 
-### `StreamConfig`
+**Properties:**
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `sample_rate` | 48000 | Sampling rate |
-| `channels` | 2 | Stereo |
-| `frames_per_buffer` | 480 | 10 ms @ 48 kHz |
+| Property | Type | Description |
+|----------|------|-------------|
+| `is_running` | bool | Check if capture is active |
+| `pid` | int | Get target process ID |
+| `config` | StreamConfig | Get stream configuration |
+
+**Utility Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `set_callback(callback)` | Change or remove audio callback |
+| `get_format()` | Get audio format info (dict) |
+
+### Audio Format
+
+**Note:** The native extension uses a **fixed audio format** (hardcoded in C++):
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Sample Rate | **44,100 Hz** | CD quality (fixed) |
+| Channels | **2** | Stereo (fixed) |
+| Bit Depth | **16-bit** | PCM format (fixed) |
+
+The `StreamConfig` class exists for API compatibility but does not change the native backend format.
 
 ---
 
@@ -128,7 +155,7 @@ pid = 12345
 wav = wave.open("output.wav", "wb")
 wav.setnchannels(2)
 wav.setsampwidth(2)  # 16-bit PCM
-wav.setframerate(48000)
+wav.setframerate(44100)  # Native format is 44.1 kHz
 
 def on_data(pcm, frames):
     wav.writeframes(pcm)
@@ -137,6 +164,30 @@ with ProcessAudioTap(pid, on_data=on_data):
     input("Recording... Press Enter to stop.\n")
 
 wav.close()
+```
+
+---
+
+## 📚 Example: Synchronous Read API
+
+```python
+from processaudiotap import ProcessAudioTap
+
+tap = ProcessAudioTap(pid=12345)
+tap.start()
+
+try:
+    while True:
+        chunk = tap.read(timeout=1.0)  # Blocking read
+        if chunk:
+            print(f"Got {len(chunk)} bytes")
+            # Process audio data...
+        else:
+            print("Timeout, no data")
+except KeyboardInterrupt:
+    pass
+finally:
+    tap.close()
 ```
 
 ---

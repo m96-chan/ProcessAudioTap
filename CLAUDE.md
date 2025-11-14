@@ -61,8 +61,6 @@ The library uses a native C++ extension for per-process audio capture:
 ```
 ProcessAudioTap (core.py - Public API)
     ↓
-_BackendWrapper (Thin wrapper)
-    ↓
 _NativeLoopback (C++ extension - REQUIRED)
     - Uses ActivateAudioInterfaceAsync
     - Per-process audio capture
@@ -102,8 +100,8 @@ WASAPI Capture Buffer
 - `ProcessAudioTap`: User-facing class with two operation modes:
   - Callback mode: `start(on_data=callback)`
   - Async mode: `async for chunk in tap.iter_chunks()`
-- `StreamConfig`: Audio format configuration (default: 48kHz, stereo, 10ms buffer)
-- `_BackendWrapper`: Thin wrapper around native backend for interface consistency
+  - Directly uses `_NativeLoopback` for audio capture
+- `StreamConfig`: Audio format configuration (exists for API compatibility but does not affect native backend)
 
 **[_native.cpp](src/processaudiotap/_native.cpp)** - C++ Extension:
 - `ProcessLoopback` class: Main capture implementation
@@ -141,15 +139,20 @@ WASAPI Capture Buffer
 - `mypy`: Type checking
 - `types-setuptools`: Type stubs for setuptools
 
-## Audio Format Defaults
+## Audio Format
 
-Default configuration in `StreamConfig`:
-- **Sample Rate:** 48000 Hz
+**IMPORTANT:** The native extension uses a **fixed audio format** hardcoded in [_native.cpp:329-336](src/processaudiotap/_native.cpp#L329-L336):
+
+- **Sample Rate:** 44,100 Hz (CD quality)
 - **Channels:** 2 (stereo)
 - **Bits per Sample:** 16-bit
-- **Buffer Duration:** 10ms (configurable via `buffer_ms`)
+- **Format:** PCM (WAVE_FORMAT_PCM)
+- **Block Align:** 4 bytes (2 channels × 16 bits / 8)
+- **Byte Rate:** 176,400 bytes/sec
 
-Format is enforced in WASAPI initialization. Raw PCM data is returned as `bytes` to user callbacks/iterators.
+**Note:** The `StreamConfig` class exists in Python but does not affect the native backend format. The format is fixed at the C++ level and cannot be changed without recompiling the extension.
+
+Raw PCM data is returned as `bytes` to user callbacks/iterators in this format.
 
 ## Known Issues and TODOs
 

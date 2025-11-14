@@ -1,6 +1,6 @@
 /**
  * WASAPI Process Loopback Native Extension
- * VRChatプロセスのみの音声をキャプチャするC++拡張モジュール
+ * プロセスの音声をキャプチャするC++拡張モジュール
  */
 
 #define PY_SSIZE_T_CLEAN
