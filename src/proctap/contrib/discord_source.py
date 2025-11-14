@@ -1,5 +1,5 @@
 """
-Discord AudioSource implementation for ProcessAudioTap.
+Discord AudioSource implementation for proctap.
 
 Streams process audio to Discord voice channels with automatic format conversion
 and resampling to Discord's required format (48kHz, 16-bit PCM, stereo).

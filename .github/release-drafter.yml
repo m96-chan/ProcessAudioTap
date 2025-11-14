@@ -27,7 +27,7 @@ template: |
   ## Installation
 
   ```bash
-  pip install processaudiotap
+  pip install proc-tap
   - PR に `feature`, `bug`, `ci` とか label をつけておくと自動でカテゴリ分けされる
   ```
 

@@ -4,12 +4,12 @@ import sys
 import os
 
 if os.name != "nt":
-    raise RuntimeError("ProcessAudioTap _native backend is Windows only.")
+    raise RuntimeError("proctap _native backend is Windows only.")
 
 ext_modules = [
     Extension(
-        "processaudiotap._native",
-        sources=["src/processaudiotap/_native.cpp"],
+        "proctap._native",
+        sources=["src/proctap/_native.cpp"],
         language="c++",
         extra_compile_args=["/std:c++20", "/EHsc", '/utf-8'] if sys.platform == 'win32' else [],
         libraries=[
@@ -22,7 +22,7 @@ ext_modules = [
 ]
 
 setup(
-    name="ProcessAudioTap",
+    name="proc-tap",
     version="0.1.0",
     packages=find_packages(where="src"),
     package_dir={"": "src"},

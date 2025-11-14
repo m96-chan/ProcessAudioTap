@@ -1,6 +1,6 @@
-# 📡 ProcessAudioTap
+# 📡 ProcTap
 
-ProcessAudioTap is a Python library with a high-performance C++ backend that enables per-process audio capture on Windows 10/11 (20H1+) using ActivateAudioInterfaceAsync.
+ProcTap is a Python library with a high-performance C++ backend that enables per-process audio capture on Windows 10/11 (20H1+) using ActivateAudioInterfaceAsync.
 
 It lets you capture audio from a specific process only — without system sounds or other app audio mixed in.  
 Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
@@ -33,20 +33,20 @@ Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
 **From PyPI** (coming soon):
 
 ```bash
-pip install processaudiotap
+pip install proctap
 ```
 
 **From TestPyPI** (for testing pre-releases):
 
 ```bash
-pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ processaudiotap
+pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ proctap
 ```
 
 **From Source**:
 
 ```bash
-git clone https://github.com/m96-chan/ProcessAudioTap
-cd ProcessAudioTap
+git clone https://github.com/m96-chan/ProcTap
+cd ProcTap
 pip install -e .
 ```
 
@@ -65,14 +65,14 @@ pip install -e .
 ## 🧰 Basic Usage (Callback API)
 
 ```python
-from processaudiotap import ProcessAudioTap, StreamConfig
+from proctap import ProcTap, StreamConfig
 
 def on_chunk(pcm: bytes, frames: int):
     print(f"Received {len(pcm)} bytes ({frames} frames)")
 
 pid = 12345  # Target process ID
 
-tap = ProcessAudioTap(pid, StreamConfig(), on_data=on_chunk)
+tap = ProcTap(pid, StreamConfig(), on_data=on_chunk)
 tap.start()
 
 input("Recording... Press Enter to stop.\n")
@@ -86,10 +86,10 @@ tap.close()
 
 ```python
 import asyncio
-from processaudiotap import ProcessAudioTap
+from proctap import ProcTap
 
 async def main():
-    tap = ProcessAudioTap(pid=12345)
+    tap = ProcTap(pid=12345)
     tap.start()
 
     async for chunk in tap.iter_chunks():
@@ -102,7 +102,7 @@ asyncio.run(main())
 
 ## 📄 API Overview
 
-### `class ProcessAudioTap`
+### `class ProcTap`
 
 **Control Methods:**
 
@@ -161,7 +161,7 @@ The `StreamConfig` class exists for API compatibility but does not change the na
 ## 📚 Example: Save to WAV
 
 ```python
-from processaudiotap import ProcessAudioTap
+from proctap import ProcTap
 import wave
 
 pid = 12345
@@ -174,7 +174,7 @@ wav.setframerate(44100)  # Native format is 44.1 kHz
 def on_data(pcm, frames):
     wav.writeframes(pcm)
 
-with ProcessAudioTap(pid, on_data=on_data):
+with ProcTap(pid, on_data=on_data):
     input("Recording... Press Enter to stop.\n")
 
 wav.close()
@@ -185,9 +185,9 @@ wav.close()
 ## 📚 Example: Synchronous Read API
 
 ```python
-from processaudiotap import ProcessAudioTap
+from proctap import ProcTap
 
-tap = ProcessAudioTap(pid=12345)
+tap = ProcTap(pid=12345)
 tap.start()
 
 try:
@@ -209,8 +209,8 @@ finally:
 ## 🏗 Build From Source
 
 ```bash
-git clone https://github.com/m96-chan/ProcessAudioTap
-cd ProcessAudioTap
+git clone https://github.com/m96-chan/ProcTap
+cd ProcTap
 pip install -e .
 ```
 
@@ -224,14 +224,14 @@ pip install -e .
 ## 🔧 Project Structure
 
 ```
-ProcessAudioTap/
+ProcTap/
 ├─ LICENSE
 ├─ README.md
 ├─ pyproject.toml
 ├─ setup.cfg
 ├─ setup.py
 ├─ src/
-│  └─ processaudiotap/
+│  └─ proctap/
 │     ├─ __init__.py
 │     ├─ core.py
 │     ├─ _native.cpp

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ProcessAudioTap is a Windows-only Python library for capturing audio from specific processes using WASAPI Process Loopback. It provides both a high-performance C++ native extension and a pure Python fallback backend.
+ProcTap is a Windows-only Python library for capturing audio from specific processes using WASAPI Process Loopback. It provides both a high-performance C++ native extension and a pure Python fallback backend.
 
 **Key Characteristics:**
 - Per-process audio isolation (not system-wide)
@@ -27,7 +27,7 @@ python -m build --wheel
 python -m build
 ```
 
-**Important:** After modifying C++ code in [_native.cpp](src/processaudiotap/_native.cpp), you must rebuild:
+**Important:** After modifying C++ code in [_native.cpp](src/proctap/_native.cpp), you must rebuild:
 ```bash
 pip install -e . --force-reinstall --no-deps
 ```
@@ -59,7 +59,7 @@ python examples/record_proc_to_wav.py --name "VRChat.exe" --output audio.wav
 The library uses a native C++ extension for per-process audio capture:
 
 ```
-ProcessAudioTap (core.py - Public API)
+ProcTap (core.py - Public API)
     ↓
 _NativeLoopback (C++ extension - REQUIRED)
     - Uses ActivateAudioInterfaceAsync
@@ -67,7 +67,7 @@ _NativeLoopback (C++ extension - REQUIRED)
     - Defined in _native.cpp (763 lines)
 ```
 
-**Backend Requirements** ([core.py:16-24](src/processaudiotap/core.py#L16-L24)):
+**Backend Requirements** ([core.py:16-24](src/proctap/core.py#L16-L24)):
 - The native C++ extension (`_native`) is **required**
 - If the extension fails to import, an `ImportError` is raised immediately
 - No Python fallback is provided, as per-process capture requires native WASAPI APIs
@@ -96,14 +96,14 @@ WASAPI Capture Buffer
 
 ### Key Components
 
-**[core.py](src/processaudiotap/core.py)** - Main API surface:
-- `ProcessAudioTap`: User-facing class with two operation modes:
+**[core.py](src/proctap/core.py)** - Main API surface:
+- `ProcTap`: User-facing class with two operation modes:
   - Callback mode: `start(on_data=callback)`
   - Async mode: `async for chunk in tap.iter_chunks()`
   - Directly uses `_NativeLoopback` for audio capture
 - `StreamConfig`: Audio format configuration (exists for API compatibility but does not affect native backend)
 
-**[_native.cpp](src/processaudiotap/_native.cpp)** - C++ Extension:
+**[_native.cpp](src/proctap/_native.cpp)** - C++ Extension:
 - `ProcessLoopback` class: Main capture implementation
 - Uses `ActivateAudioInterfaceAsync` for process-specific capture
 - COM/WRL integration with proper apartment threading
@@ -141,7 +141,7 @@ WASAPI Capture Buffer
 
 ## Audio Format
 
-**IMPORTANT:** The native extension uses a **fixed audio format** hardcoded in [_native.cpp:329-336](src/processaudiotap/_native.cpp#L329-L336):
+**IMPORTANT:** The native extension uses a **fixed audio format** hardcoded in [_native.cpp:329-336](src/proctap/_native.cpp#L329-L336):
 
 - **Sample Rate:** 44,100 Hz (CD quality)
 - **Channels:** 2 (stereo)
@@ -156,11 +156,11 @@ Raw PCM data is returned as `bytes` to user callbacks/iterators in this format.
 
 ## Known Issues and TODOs
 
-1. **Frame Count Calculation** ([core.py:210](src/processaudiotap/core.py#L210)):
+1. **Frame Count Calculation** ([core.py:210](src/proctap/core.py#L210)):
    - Currently returns `-1` for frame count in callbacks
    - TODO: Calculate from backend format info
 
-2. **Buffer Size Control** ([core.py:32](src/processaudiotap/core.py#L32)):
+2. **Buffer Size Control** ([core.py:32](src/proctap/core.py#L32)):
    - `buffer_ms` parameter exists but note indicates limited control
 
 3. **Test Coverage:**

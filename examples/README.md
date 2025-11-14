@@ -1,10 +1,10 @@
-# ProcessAudioTap Examples
+# ProcTap Examples
 
-This directory provides usage examples for the ProcessAudioTap library.
+This directory provides usage examples for the ProcTap library.
 
 ## Overview
 
-This directory contains practical examples of per-process audio capture using ProcessAudioTap. Each sample demonstrates how to use the library's features in real-world scenarios.
+This directory contains practical examples of per-process audio capture using ProcTap. Each sample demonstrates how to use the library's features in real-world scenarios.
 
 ## System Requirements
 
@@ -16,7 +16,7 @@ This directory contains practical examples of per-process audio capture using Pr
 
 ### Required
 
-1. **ProcessAudioTap** (this package)
+1. **ProcTap** (this package)
    - Core functionality for per-process audio capture
    - Must be built from source
 
@@ -32,7 +32,7 @@ This directory contains practical examples of per-process audio capture using Pr
 
 ## Installation Steps
 
-### 1. Build and Install ProcessAudioTap
+### 1. Build and Install ProcTap
 
 **Option A: From Source** (Recommended for development)
 
@@ -49,7 +49,7 @@ pip install -e ".[dev]"
 **Option B: From TestPyPI** (For testing pre-releases)
 
 ```bash
-pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ processaudiotap
+pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ proctap
 ```
 
 **Note**: Building from source requires Visual Studio Build Tools and Windows SDK.
@@ -63,7 +63,7 @@ pip install psutil
 ### 3. Verify Installation
 
 ```bash
-python -c "from processaudiotap import ProcessAudioTap; print('Installation successful!')"
+python -c "from proctap import ProcTap; print('Installation successful!')"
 python -c "import psutil; print('psutil installation successful!')"
 ```
 
@@ -167,13 +167,13 @@ The WAV file will be saved when recording stops.
 
 ## Troubleshooting
 
-### Error: `ModuleNotFoundError: No module named 'processaudiotap'`
+### Error: `ModuleNotFoundError: No module named 'proctap'`
 
-**Cause**: ProcessAudioTap is not installed.
+**Cause**: ProcTap is not installed.
 
 **Solution**:
 ```bash
-cd /path/to/ProcessAudioTap
+cd /path/to/ProcTap
 pip install -e .
 ```
 
@@ -205,7 +205,7 @@ pip install psutil
 pip install -e . --force-reinstall --no-deps
 ```
 
-**Note**: ProcessAudioTap requires the native C++ extension. Ensure Visual Studio Build Tools and Windows SDK are installed.
+**Note**: ProcTap requires the native C++ extension. Ensure Visual Studio Build Tools and Windows SDK are installed.
 
 ### Audio is Not Being Captured
 
@@ -241,6 +241,6 @@ pip install -e . --force-reinstall --no-deps
 
 ## Support
 
-- **Bug Reports**: [GitHub Issues](https://github.com/m96-chan/ProcessAudioTap/issues)
+- **Bug Reports**: [GitHub Issues](https://github.com/m96-chan/ProcTap/issues)
 - **Documentation**: [README.md](../README.md) in the project root
 - **API Details**: [CLAUDE.md](../CLAUDE.md)

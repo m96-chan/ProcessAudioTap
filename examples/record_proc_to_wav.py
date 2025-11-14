@@ -1,4 +1,4 @@
-from processaudiotap import ProcessAudioTap
+from proctap import ProcessAudioTap
 import wave
 import argparse
 import psutil
