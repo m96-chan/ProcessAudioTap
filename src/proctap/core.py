@@ -10,18 +10,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 # -------------------------------
-# Native backend import
+# Backend import (platform-specific)
 # -------------------------------
 
-try:
-    # C++ extension backend (required)
-    from ._native import ProcessLoopback as _NativeLoopback  # type: ignore[attr-defined]
-except ImportError as e:
-    raise ImportError(
-        "Native extension (_native) could not be imported. "
-        "Please build the extension with: pip install -e .\n"
-        f"Original error: {e}"
-    ) from e
+from .backends import get_backend
+from .backends.base import AudioBackend
 
 AudioCallback = Callable[[bytes, int], None]  # (pcm_bytes, num_frames)
 
@@ -38,10 +31,16 @@ class StreamConfig:
 
 class ProcessAudioTap:
     """
-    High-level API wrapping WASAPI process loopback capture.
+    High-level API for process-specific audio capture.
 
-    - プロセスID単位でのループバックキャプチャ
-    - コールバック登録 or async イテレータで PCM を受け取る
+    Supports multiple platforms:
+    - Windows: WASAPI Process Loopback (fully implemented)
+    - Linux: PulseAudio/PipeWire (under development)
+    - macOS: Core Audio (planned, not yet implemented)
+
+    Usage:
+    - Callback mode: start(on_data=callback)
+    - Async mode: async for chunk in tap.iter_chunks()
     """
 
     def __init__(
@@ -54,8 +53,9 @@ class ProcessAudioTap:
         self._cfg = config or StreamConfig()
         self._on_data = on_data
 
-        logger.debug("Using native backend ProcessLoopback (C++ extension)")
-        self._backend = _NativeLoopback(pid)
+        # Get platform-specific backend
+        self._backend: AudioBackend = get_backend(pid)
+        logger.debug(f"Using backend: {type(self._backend).__name__}")
 
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -68,7 +68,7 @@ class ProcessAudioTap:
             # すでに start 済みなら何もしない
             return
 
-        # Native backend は __init__ で初期化済み
+        # Start platform-specific backend
         self._backend.start()
 
         self._stop_event.clear()

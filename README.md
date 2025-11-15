@@ -2,12 +2,12 @@
 
 # 📡 ProcTap
 
-**Per-Process Audio Capture for Windows**
+**Cross-Platform Per-Process Audio Capture**
 
 [![PyPI version](https://img.shields.io/pypi/v/proc-tap?color=blue&logo=pypi&logoColor=white)](https://pypi.org/project/proc-tap/)
 [![Python versions](https://img.shields.io/pypi/pyversions/proc-tap?logo=python&logoColor=white)](https://pypi.org/project/proc-tap/)
 [![Downloads](https://img.shields.io/pypi/dm/proc-tap?logo=pypi&logoColor=white)](https://pypi.org/project/proc-tap/)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue?logo=windows)](https://github.com/m96-chan/ProcTap)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux*%20%7C%20macOS*-blue)](https://github.com/m96-chan/ProcTap)
 
 [![Build wheels](https://github.com/m96-chan/ProcTap/actions/workflows/build-wheels.yml/badge.svg)](https://github.com/m96-chan/ProcTap/actions/workflows/build-wheels.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -16,10 +16,20 @@
 
 ---
 
-ProcTap is a Python library with a high-performance C++ backend that enables per-process audio capture on Windows 10/11 (20H1+) using ActivateAudioInterfaceAsync.
+ProcTap is a Python library for per-process audio capture with platform-specific backends.
 
 **Capture audio from a specific process only** — without system sounds or other app audio mixed in.
 Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
+
+### Platform Support
+
+| Platform | Status | Backend | Notes |
+|----------|--------|---------|-------|
+| **Windows** | ✅ **Fully Supported** | WASAPI (C++ native) | Windows 10/11 (20H1+) |
+| **Linux** | 🚧 **Under Development** | PulseAudio/PipeWire | Stub implementation with TODOs |
+| **macOS** | ❌ **Planned** | Core Audio / ScreenCaptureKit | Not yet implemented |
+
+<sub>\* Linux and macOS support are in development/planning stages. Windows is currently the only fully functional platform.</sub>
 
 </div>
 
@@ -27,22 +37,26 @@ Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
 
 ## 🚀 Features
 
-- 🎧 **Capture audio from a single target process**  
+- 🎧 **Capture audio from a single target process**
   (VRChat, games, browsers, Discord, DAWs, streaming tools, etc.)
 
-- ⚡ **Uses ActivateAudioInterfaceAsync (modern WASAPI)**  
-  → More stable than legacy IAudioClient2 loopback approaches
+- 🌍 **Cross-platform architecture**
+  → Windows (fully supported) | Linux (under development) | macOS (planned)
 
-- 🧵 **Low-latency, thread-safe C++ engine**
-  → 44.1 kHz / stereo / 16-bit PCM format
+- ⚡ **Platform-optimized backends**
+  → Windows: ActivateAudioInterfaceAsync (modern WASAPI)
+  → Linux: PulseAudio/PipeWire (in development)
+  → macOS: Planned (Core Audio / ScreenCaptureKit)
+
+- 🧵 **Low-latency, thread-safe audio engine**
+  → 44.1 kHz / stereo / 16-bit PCM format (Windows)
 
 - 🐍 **Python-friendly high-level API**
   - Callback-based streaming
   - Async generator streaming (`async for`)
 
-- 🔌 **Native extension for high-throughput PCM delivery**
-
-- 🪟 **Windows-only (10/11, 20H1+)**
+- 🔌 **Native extensions for high-performance**
+  → C++ extension on Windows for optimal throughput
 
 ---
 
@@ -74,11 +88,21 @@ pip install -e .
 
 ## 🛠 Requirements
 
-- Windows 10 / 11 (20H1 or later recommended)
+**Windows (Fully Supported):**
+- Windows 10 / 11 (20H1 or later)
 - Python 3.10+
 - WASAPI support
-- **No admin privileges required**  
-  (Per-process loopback capture works with standard user permissions)
+- **No admin privileges required**
+
+**Linux (Under Development):**
+- Linux with PulseAudio or PipeWire
+- Python 3.10+
+- ⚠️ **WARNING:** Backend is not yet functional
+
+**macOS (Planned):**
+- macOS 12.3+ (for ScreenCaptureKit)
+- Python 3.10+
+- ❌ **Not yet implemented**
 
 ---
 
@@ -234,10 +258,14 @@ cd ProcTap
 pip install -e .
 ```
 
-**Requirements:**
+**Windows Build Requirements:**
 - Visual Studio Build Tools
 - Windows SDK
 - CMake (if you modularize the C++ code)
+
+**Linux/macOS:**
+- No C++ compiler required (pure Python)
+- Note: Backends are not yet functional on these platforms
 
 ---
 
@@ -253,7 +281,9 @@ Contributions are welcome! We have structured issue templates to help guide your
 
 **Special Interest:**
 - PRs from WASAPI/C++ experts are especially appreciated
-- Help with cross-platform compatibility research
+- **Linux backend implementation** (PulseAudio/PipeWire experts welcome!)
+- **macOS backend implementation** (Core Audio / ScreenCaptureKit experience needed)
+- Cross-platform testing and compatibility
 - Performance profiling and optimization
 
 ---
