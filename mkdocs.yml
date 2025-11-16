@@ -123,7 +123,7 @@ nav:
     - Audio Format: guide/audio-format.md
     - Error Handling: guide/error-handling.md
   - API Reference:
-    - ProcessAudioTap: api/processaudiotap.md
+    - ProcessAudioCapture: api/processaudiotap.md
     - StreamConfig: api/streamconfig.md
     - Contrib Modules: api/contrib.md
   - Advanced:

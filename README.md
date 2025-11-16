@@ -270,7 +270,7 @@ finally:
 ## 🐧 Linux Example
 
 ```python
-from proctap import ProcessAudioTap, StreamConfig
+from proctap import ProcessAudioCapture, StreamConfig
 import wave
 
 pid = 12345  # Your target process ID
@@ -288,7 +288,7 @@ def on_data(pcm, frames):
 config = StreamConfig(sample_rate=44100, channels=2)
 
 try:
-    with ProcessAudioTap(pid, config=config, on_data=on_data):
+    with ProcessAudioCapture(pid, config=config, on_data=on_data):
         print("⚠️  Make sure the process is actively playing audio!")
         input("Recording... Press Enter to stop.\n")
 finally:
@@ -306,7 +306,7 @@ finally:
 ## 🍎 macOS Example
 
 ```python
-from proctap import ProcessAudioTap, StreamConfig
+from proctap import ProcessAudioCapture, StreamConfig
 import wave
 
 pid = 12345  # Your target process ID
@@ -324,7 +324,7 @@ def on_data(pcm, frames):
 config = StreamConfig(sample_rate=48000, channels=2)
 
 try:
-    with ProcessAudioTap(pid, config=config, on_data=on_data):
+    with ProcessAudioCapture(pid, config=config, on_data=on_data):
         print("⚠️  Make sure the process is actively playing audio!")
         print("⚠️  On first run, macOS will prompt for permission.")
         input("Recording... Press Enter to stop.\n")

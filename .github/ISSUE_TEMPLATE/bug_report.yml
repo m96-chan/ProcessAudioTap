@@ -54,7 +54,7 @@ body:
       description: Provide a minimal code example that reproduces the issue
       placeholder: |
         ```python
-        from proctap import ProcessAudioTap
+        from proctap import ProcessAudioCapture
 
         # Your code here
         ```

@@ -59,7 +59,7 @@ body:
       description: Quote or paste the current documentation that needs improvement
       placeholder: |
         Currently says:
-        "Use ProcessAudioTap to capture audio."
+        "Use ProcessAudioCapture to capture audio."
       render: markdown
 
   - type: textarea
@@ -69,8 +69,8 @@ body:
       description: What should the documentation say instead?
       placeholder: |
         Should say:
-        "ProcessAudioTap captures audio from a specific Windows process by PID.
-        Example: `tap = ProcessAudioTap(pid=12345)`"
+        "ProcessAudioCapture captures audio from a specific Windows process by PID.
+        Example: `tap = ProcessAudioCapture(pid=12345)`"
       render: markdown
     validations:
       required: true
@@ -110,7 +110,7 @@ body:
       description: If you're suggesting a code example, provide it here
       placeholder: |
         ```python
-        from proctap import ProcessAudioTap
+        from proctap import ProcessAudioCapture
 
         # Example demonstrating the concept
         ```

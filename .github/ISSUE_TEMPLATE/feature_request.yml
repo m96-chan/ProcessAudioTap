@@ -51,10 +51,10 @@ body:
       description: If applicable, show what the API might look like
       placeholder: |
         ```python
-        from proctap import ProcessAudioTap
+        from proctap import ProcessAudioCapture
 
         # Example of how the feature might work
-        tap = ProcessAudioTap(pid=1234, new_feature=True)
+        tap = ProcessAudioCapture(pid=1234, new_feature=True)
         ```
       render: python
 

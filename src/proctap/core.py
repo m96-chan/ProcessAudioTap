@@ -29,7 +29,7 @@ class StreamConfig:
     frames_per_buffer: int = 480  # 10ms @ 48kHz
 
 
-class ProcessAudioTap:
+class ProcessAudioCapture:
     """
     High-level API for process-specific audio capture.
 
@@ -127,7 +127,7 @@ class ProcessAudioTap:
     def close(self) -> None:
         self.stop()
 
-    def __enter__(self) -> "ProcessAudioTap":
+    def __enter__(self) -> "ProcessAudioCapture":
         self.start()
         return self
 

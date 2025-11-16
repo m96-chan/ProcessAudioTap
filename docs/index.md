@@ -25,7 +25,7 @@ It lets you capture audio from a **specific process only** — without system so
 ## Quick Example
 
 ```python
-from proctap import ProcessAudioTap
+from proctap import ProcessAudioCapture
 import wave
 
 # Open WAV file for writing
@@ -39,7 +39,7 @@ def on_data(pcm, frames):
     wav.writeframes(pcm)
 
 # Start capturing from process ID 12345
-with ProcessAudioTap(pid=12345, on_data=on_data):
+with ProcessAudioCapture(pid=12345, on_data=on_data):
     input("Recording... Press Enter to stop.\n")
 
 wav.close()

@@ -167,7 +167,7 @@ Audio Source (Process-specific)
 ### Key Components
 
 **[core.py](src/proctap/core.py)** - Main API surface:
-- `ProcessAudioTap`: User-facing class with two operation modes:
+- `ProcessAudioCapture`: User-facing class with two operation modes:
   - Callback mode: `start(on_data=callback)`
   - Async mode: `async for chunk in tap.iter_chunks()`
   - Uses platform-specific backend via `get_backend()`
@@ -282,11 +282,11 @@ The `StreamConfig` parameter now controls output format through automatic conver
 - **Usage**:
   ```python
   # Use native format (no conversion)
-  tap = ProcessAudioTap(pid, config=None)
+  tap = ProcessAudioCapture(pid, config=None)
 
   # Convert to 48kHz stereo (uses libsamplerate automatically)
   config = StreamConfig(sample_rate=48000, channels=2)
-  tap = ProcessAudioTap(pid, config=config)
+  tap = ProcessAudioCapture(pid, config=config)
   ```
 
 **Linux Backend:**
@@ -343,7 +343,7 @@ Raw PCM data is returned as `bytes` to user callbacks/iterators.
 1. **Test Coverage:**
    - ✅ Audio format converter tests added ([test_converter.py](test_converter.py))
    - TODO: Add platform-specific backend tests
-   - TODO: Add integration tests for ProcessAudioTap with real processes
+   - TODO: Add integration tests for ProcessAudioCapture with real processes
 
 ## CI/CD Workflows
 

@@ -65,7 +65,7 @@ body:
       description: Provide code that demonstrates the performance issue
       placeholder: |
         ```python
-        from proctap import ProcessAudioTap
+        from proctap import ProcessAudioCapture
 
         # Code that exhibits poor performance
         ```

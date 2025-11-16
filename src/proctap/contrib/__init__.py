@@ -1,8 +1,8 @@
 """
-Contrib modules for ProcessAudioTap.
+Contrib modules for ProcessAudioCapture.
 
 This package contains optional integrations and utilities that extend
-ProcessAudioTap's functionality.
+ProcessAudioCapture's functionality.
 """
 
 from __future__ import annotations

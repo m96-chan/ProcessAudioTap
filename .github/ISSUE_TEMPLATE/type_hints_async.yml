@@ -30,7 +30,7 @@ body:
     attributes:
       label: Description
       description: Describe the type hint or async improvement you're proposing
-      placeholder: The `ProcessAudioTap.read()` method is missing return type annotations...
+      placeholder: The `ProcessAudioCapture.read()` method is missing return type annotations...
     validations:
       required: true
 

@@ -30,7 +30,7 @@ This will install the pre-built wheel for your Python version.
 After installation, verify that ProcTap is working:
 
 ```python
-python -c "from proctap import ProcessAudioTap; print('✓ ProcTap installed successfully')"
+python -c "from proctap import ProcessAudioCapture; print('✓ ProcTap installed successfully')"
 ```
 
 ## Installation from Source
@@ -64,7 +64,7 @@ pip install -e ".[dev]"
 ### 4. Verify Build
 
 ```python
-python -c "from proctap import ProcessAudioTap; print('✓ Build successful')"
+python -c "from proctap import ProcessAudioCapture; print('✓ Build successful')"
 ```
 
 !!! tip "Rebuilding After C++ Changes"
