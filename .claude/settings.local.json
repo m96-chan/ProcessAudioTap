@@ -3,7 +3,8 @@
     "allow": [
       "Bash(git mv:*)",
       "Bash(move:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(./cuda_env/Scripts/python.exe:*)"
     ],
     "deny": [],
     "ask": []

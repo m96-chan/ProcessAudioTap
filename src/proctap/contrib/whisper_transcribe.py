@@ -11,7 +11,7 @@ Requirements:
 - CUDA (optional): For GPU acceleration
 
 Usage as CLI:
-    # Using PID with GPU (CUDA)
+    # Using PID with GPU (CUDA) and VAD enabled (default)
     python -m proctap.contrib.whisper_transcribe --pid 12345
 
     # Using process name with CPU
@@ -20,16 +20,24 @@ Usage as CLI:
     # Custom model and language
     python -m proctap.contrib.whisper_transcribe --pid 12345 --model large-v3 --language ja
 
+    # Disable VAD to transcribe all chunks
+    python -m proctap.contrib.whisper_transcribe --pid 12345 --no-vad
+
+    # Adjust VAD sensitivity (lower = more sensitive)
+    python -m proctap.contrib.whisper_transcribe --pid 12345 --vad-threshold -50.0
+
 Usage as library:
     ```python
     from proctap.contrib.whisper_transcribe import RealtimeTranscriber
 
-    # Create transcriber
+    # Create transcriber with VAD enabled (default)
     transcriber = RealtimeTranscriber(
         pid=12345,
         model_size="base",
         device="cuda",
-        language="en"
+        language="en",
+        use_vad=True,
+        vad_threshold_db=-45.0
     )
 
     # Start transcription
@@ -40,6 +48,9 @@ Usage as library:
     # Stop when done
     transcriber.stop()
     ```
+
+    VAD (Voice Activity Detection) is enabled by default and helps skip
+    silent chunks, reducing unnecessary transcription and improving performance.
 """
 
 from __future__ import annotations
@@ -55,6 +66,7 @@ from typing import Optional
 
 try:
     from proctap import ProcessAudioCapture, StreamConfig
+    from proctap.contrib.filters import EnergyVAD
 except ImportError:
     print("Error: proctap is not installed. Install it with: pip install proc-tap")
     sys.exit(1)
@@ -64,6 +76,13 @@ try:
 except ImportError:
     print("Error: faster-whisper is not installed.")
     print("Install with: pip install faster-whisper")
+    sys.exit(1)
+
+try:
+    import numpy as np
+except ImportError:
+    print("Error: numpy is not installed.")
+    print("Install with: pip install numpy")
     sys.exit(1)
 
 
@@ -125,6 +144,8 @@ class RealtimeTranscriber:
         compute_type: str = "float16",
         language: Optional[str] = None,
         chunk_duration: float = 3.0,
+        use_vad: bool = True,
+        vad_threshold_db: float = -45.0,
     ):
         """
         Initialize the real-time transcriber.
@@ -136,10 +157,13 @@ class RealtimeTranscriber:
             compute_type: Compute type (float16, int8, int8_float16 for GPU; int8, float32 for CPU)
             language: Language code (None for auto-detection, e.g., "en", "ja", "zh")
             chunk_duration: Duration of audio chunks to transcribe in seconds
+            use_vad: Enable Voice Activity Detection to skip silence (default: True)
+            vad_threshold_db: VAD energy threshold in dB (default: -45.0)
         """
         self.pid = pid
         self.chunk_duration = chunk_duration
         self.language = language
+        self.use_vad = use_vad
 
         # Audio format: 16kHz mono (Whisper's native format)
         self.config = StreamConfig(
@@ -156,6 +180,21 @@ class RealtimeTranscriber:
         self.tap: Optional[ProcessAudioCapture] = None
         self.running = False
 
+        # Initialize VAD filter
+        if self.use_vad:
+            self.vad = EnergyVAD(
+                threshold_db=vad_threshold_db,
+                hangover_frames=3,  # Keep speech flag for 3 frames after silence
+            )
+            print(f"VAD enabled (threshold: {vad_threshold_db} dB)")
+        else:
+            self.vad = None
+
+        # Statistics
+        self.total_chunks = 0
+        self.speech_chunks = 0
+        self.skipped_chunks = 0
+
         # Initialize Whisper model
         print(f"Loading Whisper model '{model_size}' on {device}...")
         try:
@@ -164,7 +203,7 @@ class RealtimeTranscriber:
                 device=device,
                 compute_type=compute_type,
             )
-            print(f"✓ Model loaded successfully")
+            print(f"Model loaded successfully")
         except Exception as e:
             print(f"Error loading model: {e}")
             if device == "cuda":
@@ -226,6 +265,7 @@ class RealtimeTranscriber:
         print(f"{'=' * 60}")
         print(f"Language: {self.language or 'auto-detect'}")
         print(f"Chunk duration: {self.chunk_duration}s")
+        print(f"VAD: {'enabled' if self.use_vad else 'disabled'}")
         print(f"{'=' * 60}\n")
 
         while self.running:
@@ -240,12 +280,30 @@ class RealtimeTranscriber:
 
             # Transcribe chunk if available
             if chunk:
-                try:
-                    text = self.transcribe_chunk(chunk)
-                    if text:
-                        print(f"> {text}")
-                except Exception as e:
-                    print(f"Error during transcription: {e}", file=sys.stderr)
+                self.total_chunks += 1
+
+                # Check for speech activity with VAD
+                should_transcribe = True
+                if self.use_vad and self.vad is not None:
+                    # Convert bytes to float32 for VAD
+                    audio_array = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+
+                    # Apply VAD
+                    self.vad.process(audio_array)
+
+                    if not self.vad.is_speech:
+                        should_transcribe = False
+                        self.skipped_chunks += 1
+
+                # Transcribe only if speech detected (or VAD disabled)
+                if should_transcribe:
+                    self.speech_chunks += 1
+                    try:
+                        text = self.transcribe_chunk(chunk)
+                        if text:
+                            print(f"> {text}")
+                    except Exception as e:
+                        print(f"Error during transcription: {e}", file=sys.stderr)
 
     def start(self) -> None:
         """Start audio capture and transcription."""
@@ -272,7 +330,7 @@ class RealtimeTranscriber:
         )
         self.process_thread.start()
 
-        print("✓ Audio capture started")
+        print("Audio capture started")
         print("\nListening for audio... (Press Ctrl+C to stop)\n")
 
     def stop(self) -> None:
@@ -290,7 +348,19 @@ class RealtimeTranscriber:
             self.tap.stop()
             self.tap.close()
 
-        print("✓ Transcription stopped")
+        # Display statistics
+        print("\n" + "=" * 60)
+        print("Transcription Statistics")
+        print("=" * 60)
+        print(f"Total chunks processed:   {self.total_chunks}")
+        print(f"Speech chunks transcribed: {self.speech_chunks}")
+        if self.use_vad:
+            print(f"Silence chunks skipped:    {self.skipped_chunks}")
+            if self.total_chunks > 0:
+                skip_rate = (self.skipped_chunks / self.total_chunks) * 100
+                print(f"Skip rate:                 {skip_rate:.1f}%")
+        print("=" * 60)
+        print("Transcription stopped")
 
 
 def main() -> int:
@@ -337,6 +407,17 @@ def main() -> int:
         default=3.0,
         help='Duration of audio chunks to transcribe in seconds (default: 3.0)'
     )
+    parser.add_argument(
+        '--no-vad',
+        action='store_true',
+        help='Disable Voice Activity Detection (transcribe all chunks including silence)'
+    )
+    parser.add_argument(
+        '--vad-threshold',
+        type=float,
+        default=-45.0,
+        help='VAD energy threshold in dB (default: -45.0, lower = more sensitive)'
+    )
 
     args = parser.parse_args()
 
@@ -370,6 +451,8 @@ def main() -> int:
             compute_type=compute_type,
             language=args.language,
             chunk_duration=args.chunk_duration,
+            use_vad=not args.no_vad,
+            vad_threshold_db=args.vad_threshold,
         )
 
         # Start transcription
