@@ -20,7 +20,16 @@ ProcTap is a cross-platform Python library for capturing audio from specific pro
   - macOS: Core Audio Process Tap via Swift helper (macOS 14.4+, experimental)
 - Dual API: callback-based and async iterator patterns
 
-## Development Commands
+## Development Guidelines
+
+### Testing Standards
+
+**IMPORTANT:** When creating test code, ALWAYS follow pytest conventions:
+- Use pytest framework for all tests
+- Place tests in `tests/` directory or name files with `test_*.py` pattern
+- Use pytest fixtures, parametrize, and markers
+- Follow pytest discovery conventions
+- Delete experimental/temporary test scripts after verification
 
 ### Setup and Building
 
