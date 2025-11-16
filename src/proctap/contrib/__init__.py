@@ -15,3 +15,10 @@ try:
 except ImportError:
     # discord.py is not installed
     pass
+
+try:
+    from .whisper_transcribe import RealtimeTranscriber
+    __all__.append("RealtimeTranscriber")
+except ImportError:
+    # faster-whisper is not installed
+    pass
