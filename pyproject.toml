@@ -37,7 +37,6 @@ classifiers = [
 dependencies = [
     "numpy>=1.20.0",
     "scipy>=1.7.0",
-    "samplerate>=0.1.0",  # High-quality audio resampling (libsamplerate)
     "pulsectl>=23.5.0; sys_platform == 'linux'",
 ]
 
@@ -65,8 +64,8 @@ linux = [
 contrib = [
     "faster-whisper>=1.0.0",
 ]
-# Legacy: samplerate is now included by default
-# This extra is kept for backwards compatibility
+# High-quality resampling using libsamplerate (optional, scipy fallback available)
+# Note: May fail to build on some platforms (especially Windows with Python 3.13+)
 hq-resample = [
     "samplerate>=0.1.0",
 ]

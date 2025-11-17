@@ -227,7 +227,11 @@ The build system ([setup.py](setup.py)) automatically detects the platform and b
 - **Core**:
   - `numpy>=1.20.0` - Array operations for audio processing
   - `scipy>=1.7.0` - Signal processing (fallback resampling)
-  - `samplerate>=0.1.0` - Professional-grade audio resampling (libsamplerate, **included by default**)
+- **Optional**:
+  - `samplerate>=0.1.0` - Professional-grade audio resampling (libsamplerate)
+    - Install with: `pip install proc-tap[hq-resample]`
+    - **Note**: May fail to build on some platforms (Windows with Python 3.13+)
+    - Falls back to scipy if not available
 - **Windows**: Uses native C++ extension + Python format conversion
 - **Linux**: `pulsectl>=23.5.0` (automatically installed via environment markers in pyproject.toml)
 - **macOS**: No additional dependencies (uses Swift CLI helper binary)
@@ -242,7 +246,11 @@ The build system ([setup.py](setup.py)) automatically detects the platform and b
 **Development:**
 - `pytest`: Test framework
 - `mypy`: Type checking
-- `types-setuptools`: Type stubs for setuptools
+- `types-setuptools`, `types-psutil`, `scipy-stubs`: Type stubs for type checking
+
+**Contrib (optional):**
+- `faster-whisper>=1.0.0`: For real-time transcription features
+  - Install with: `pip install proc-tap[contrib]`
 
 ## Audio Format
 
@@ -269,14 +277,15 @@ The `StreamConfig` parameter now controls output format through automatic conver
   - Bit depth conversion (8/16/24/32-bit)
   - Automatic bypass when formats match (zero overhead)
 - **Resampling Quality** (automatic priority order):
-  1. **libsamplerate** (default, highest quality)
+  1. **libsamplerate** (optional, highest quality)
      - Professional-grade SRC (Sample Rate Converter)
      - SINC interpolation with minimal artifacts
-     - **Included by default** in standard installation
-  2. **scipy.signal.resample_poly** (fallback, high quality)
+     - Install with: `pip install proc-tap[hq-resample]`
+     - **Note**: May fail to build on Windows with Python 3.13+
+  2. **scipy.signal.resample_poly** (default fallback, high quality)
      - Polyphase filtering
-     - Used if libsamplerate fails or unavailable
-  3. **scipy.signal.resample** (fallback)
+     - Used if libsamplerate is not installed or unavailable
+  3. **scipy.signal.resample** (final fallback)
      - FFT-based resampling
      - Used only if both above methods fail
 - **Usage**:
@@ -284,7 +293,7 @@ The `StreamConfig` parameter now controls output format through automatic conver
   # Use native format (no conversion)
   tap = ProcessAudioCapture(pid, config=None)
 
-  # Convert to 48kHz stereo (uses libsamplerate automatically)
+  # Convert to 48kHz stereo (uses libsamplerate if available, scipy otherwise)
   config = StreamConfig(sample_rate=48000, channels=2)
   tap = ProcessAudioCapture(pid, config=config)
   ```
