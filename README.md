@@ -41,11 +41,11 @@ Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
   (VRChat, games, browsers, Discord, DAWs, streaming tools, etc.)
 
 - 🌍 **Cross-platform architecture**
-  → Windows (fully supported) | Linux (experimental) | macOS (experimental, 14.4+)
+  → Windows (fully supported) | Linux (fully supported, v0.4.0+) | macOS (experimental, 14.4+)
 
 - ⚡ **Platform-optimized backends**
   → Windows: ActivateAudioInterfaceAsync (modern WASAPI)
-  → Linux: PulseAudio/PipeWire (experimental)
+  → Linux: PipeWire Native API / PulseAudio (fully supported, v0.4.0+)
   → macOS: Core Audio Process Tap API (macOS 14.4+)
 
 - 🧵 **Low-latency, thread-safe audio engine**
@@ -79,18 +79,20 @@ pip install proc-tap
   sudo dnf install pulseaudio-utils
   ```
 
-**Optional: High-Quality Audio Resampling** (30-50% faster for sample rate conversion):
+**Optional: High-Quality Audio Resampling** (74% faster / 3.8x speedup for sample rate conversion):
 
 ```bash
 pip install proc-tap[hq-resample]
 ```
+
+**Performance:** With `libsamplerate`, resampling achieves **0.66ms per 10ms chunk** (vs 2.6ms with scipy-only).
 
 **Compatibility Notes:**
 - ✅ **Python 3.10-3.12**: Works on all platforms
 - ✅ **Linux/macOS + Python 3.13+**: Should work (you can try it!)
 - ⚠️ **Windows + Python 3.13+**: May fail to build (as of 2025-01)
   - If it fails, the library automatically falls back to scipy's polyphase filtering
-  - Still provides excellent audio quality, just 30-50% slower for resampling
+  - Still provides excellent audio quality, just 74% slower for resampling
   - You can still try installing - if it works, great! If not, no harm done.
 
 📚 **[Read the Full Documentation](https://m96-chan.github.io/ProcTap/)** for detailed guides and API reference.
@@ -219,15 +221,29 @@ asyncio.run(main())
 
 ### Audio Format
 
-**Note:** The native extension uses a **fixed audio format** (hardcoded in C++):
+**Native Backend Format** (Windows WASAPI, hardcoded in C++):
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| Sample Rate | **44,100 Hz** | CD quality (fixed) |
-| Channels | **2** | Stereo (fixed) |
-| Bit Depth | **16-bit** | PCM format (fixed) |
+| Sample Rate | **44,100 Hz** | CD quality (fixed in C++) |
+| Channels | **2** | Stereo (fixed in C++) |
+| Bit Depth | **16-bit** | PCM format (fixed in C++) |
 
-The `StreamConfig` class exists for API compatibility but does not change the native backend format.
+**Output Format Conversion** (v0.2.1+):
+
+The `StreamConfig` class controls the **output format** through automatic conversion:
+- Native format → converted to match your `StreamConfig` settings
+- Supports sample rate conversion (e.g., 44.1kHz → 48kHz)
+- Supports channel conversion (mono ↔ stereo)
+- Supports bit depth conversion (8/16/24/32-bit)
+- Zero overhead when formats match (automatic bypass)
+
+Example:
+```python
+# Get audio as 48kHz mono 24-bit
+config = StreamConfig(sample_rate=48000, channels=1, width=3)
+tap = ProcTap(pid, config=config)
+```
 
 ---
 
@@ -383,9 +399,14 @@ pip install -e .
 - Windows SDK
 - CMake (if you modularize the C++ code)
 
-**Linux/macOS:**
+**Linux:**
 - No C++ compiler required (pure Python)
-- Note: Backends are not yet functional on these platforms
+- System dependencies: `pulseaudio-utils` or `pipewire` with `libpipewire-0.3-dev`
+
+**macOS:**
+- No C++ compiler required (pure Python)
+- Swift toolchain (optional, for building the Swift CLI helper)
+- If Swift is not available, pre-built binary is included in the package
 
 ---
 
