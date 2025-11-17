@@ -1,8 +1,8 @@
 """
-Contrib modules for ProcessAudioTap.
+Contrib modules for ProcessAudioCapture.
 
 This package contains optional integrations and utilities that extend
-ProcessAudioTap's functionality.
+ProcessAudioCapture's functionality.
 """
 
 from __future__ import annotations
@@ -14,4 +14,11 @@ try:
     __all__.append("ProcessAudioSource")
 except ImportError:
     # discord.py is not installed
+    pass
+
+try:
+    from .whisper_transcribe import RealtimeTranscriber
+    __all__.append("RealtimeTranscriber")
+except ImportError:
+    # faster-whisper is not installed
     pass

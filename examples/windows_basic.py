@@ -1,4 +1,4 @@
-from proctap import ProcessAudioTap, StreamConfig
+from proctap import ProcessAudioCapture, StreamConfig
 import wave
 import argparse
 import psutil
@@ -80,7 +80,7 @@ def main():
     print("Press Enter to stop recording...")
 
     try:
-        with ProcessAudioTap(pid, config=config, on_data=on_data):
+        with ProcessAudioCapture(pid, config=config, on_data=on_data):
             input()
     except KeyboardInterrupt:
         print("\nRecording stopped by user")

@@ -64,7 +64,7 @@ class AudioBackend(ABC):
         pass
 
     @abstractmethod
-    def get_format(self) -> dict[str, int]:
+    def get_format(self) -> dict[str, int | object]:
         """
         Get audio format information.
 
@@ -73,5 +73,6 @@ class AudioBackend(ABC):
             - 'sample_rate': Sample rate in Hz (e.g., 44100)
             - 'channels': Number of channels (e.g., 2 for stereo)
             - 'bits_per_sample': Bits per sample (e.g., 16)
+            - Additional backend-specific keys may be present
         """
         pass

@@ -24,7 +24,7 @@ except ImportError as e:
         "Install with: pip install discord.py"
     ) from e
 
-from ..core import ProcessAudioTap
+from ..core import ProcessAudioCapture
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class ProcessAudioSource(discord.AudioSource):
         self.gain = gain
         self.max_queue_frames = max_queue_frames
 
-        self._tap: Optional[ProcessAudioTap] = None
+        self._tap: Optional[ProcessAudioCapture] = None
         self._capture_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
@@ -104,8 +104,8 @@ class ProcessAudioSource(discord.AudioSource):
 
         logger.info(f"Starting audio capture for PID {self.pid}")
 
-        # Create ProcessAudioTap
-        self._tap = ProcessAudioTap(pid=self.pid)
+        # Create ProcessAudioCapture
+        self._tap = ProcessAudioCapture(pid=self.pid)
         self._tap.start()
 
         # Get source format
@@ -139,7 +139,7 @@ class ProcessAudioSource(discord.AudioSource):
             try:
                 self._tap.close()
             except Exception:
-                logger.exception("Error closing ProcessAudioTap")
+                logger.exception("Error closing ProcessAudioCapture")
             finally:
                 self._tap = None
 
@@ -150,13 +150,15 @@ class ProcessAudioSource(discord.AudioSource):
     def _capture_loop(self) -> None:
         """
         Capture loop running in separate thread.
-        Continuously reads audio from ProcessAudioTap and queues converted frames.
+        Continuously reads audio from ProcessAudioCapture and queues converted frames.
         """
         logger.debug("Capture loop started")
 
         while not self._stop_event.is_set():
             try:
                 # Read audio with timeout
+                if self._tap is None:
+                    break
                 chunk = self._tap.read(timeout=0.5)
 
                 if chunk is None or len(chunk) == 0:
@@ -221,7 +223,7 @@ class ProcessAudioSource(discord.AudioSource):
         Convert audio to Discord format (48kHz, 16-bit PCM, stereo).
 
         Args:
-            chunk: Raw audio data from ProcessAudioTap
+            chunk: Raw audio data from ProcessAudioCapture
 
         Returns:
             Converted audio data, or None if conversion failed

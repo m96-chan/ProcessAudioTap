@@ -8,6 +8,6 @@ except PackageNotFoundError:
     # 開発中の editable install やビルド前など
     __version__ = "0.0.0"
 
-from .core import ProcessAudioTap, StreamConfig
+from .core import ProcessAudioCapture, StreamConfig
 
-__all__ = ["ProcessAudioTap", "StreamConfig", "__version__"]
+__all__ = ["ProcessAudioCapture", "StreamConfig", "__version__"]

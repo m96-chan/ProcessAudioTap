@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 
 try:
-    from proctap import ProcessAudioTap, StreamConfig
+    from proctap import ProcessAudioCapture, StreamConfig
 except ImportError:
     print("Error: proctap is not installed. Install it with: pip install proc-tap")
     sys.exit(1)
@@ -176,7 +176,7 @@ def main() -> int:
 
         # Create audio capture instance
         print("\nInitializing ProcTap...")
-        tap = ProcessAudioTap(pid=pid, config=config, on_data=on_audio_data)
+        tap = ProcessAudioCapture(pid=pid, config=config, on_data=on_audio_data)
 
         print("Starting audio capture...")
         print("\n⚠️  IMPORTANT: Make sure the target process is actively playing audio!")

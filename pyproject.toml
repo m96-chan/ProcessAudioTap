@@ -37,7 +37,6 @@ classifiers = [
 dependencies = [
     "numpy>=1.20.0",
     "scipy>=1.7.0",
-    "samplerate>=0.1.0",  # High-quality audio resampling (libsamplerate)
     "pulsectl>=23.5.0; sys_platform == 'linux'",
 ]
 
@@ -50,7 +49,9 @@ Issues = "https://github.com/m96-chan/ProcTap/issues"
 dev = [
     "pytest",
     "mypy",
-    "types-setuptools"
+    "types-setuptools",
+    "types-psutil",
+    "scipy-stubs",
 ]
 docs = [
     "mkdocs-material>=9.0.0",
@@ -59,8 +60,12 @@ docs = [
 linux = [
     "pulsectl>=23.5.0",
 ]
-# Legacy: samplerate is now included by default
-# This extra is kept for backwards compatibility
+# Contrib modules with optional dependencies
+contrib = [
+    "faster-whisper>=1.0.0",
+]
+# High-quality resampling using libsamplerate (optional, scipy fallback available)
+# Note: May fail to build on some platforms (especially Windows with Python 3.13+)
 hq-resample = [
     "samplerate>=0.1.0",
 ]
@@ -68,3 +73,34 @@ hq-resample = [
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["proctap*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = false
+
+# Platform-specific and optional dependencies
+[[tool.mypy.overrides]]
+module = [
+    "pulsectl",
+    "pulsectl.*",
+    "discord",
+    "discord.*",
+    "faster_whisper",
+    "faster_whisper.*",
+    "samplerate",
+    "samplerate.*",
+]
+ignore_missing_imports = true

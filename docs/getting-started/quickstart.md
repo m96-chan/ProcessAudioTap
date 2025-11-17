@@ -64,14 +64,14 @@ print(f"VRChat PID: {pid}")
 ### Example 1: Print Audio Data
 
 ```python
-from proctap import ProcessAudioTap
+from proctap import ProcessAudioCapture
 
 def on_audio(pcm_data: bytes, frame_count: int):
     """Called whenever audio data is available."""
     print(f"Received {len(pcm_data)} bytes ({frame_count} frames)")
 
 # Replace 12345 with your target process ID
-tap = ProcessAudioTap(pid=12345, on_data=on_audio)
+tap = ProcessAudioCapture(pid=12345, on_data=on_audio)
 tap.start()
 
 input("Capturing audio... Press Enter to stop.\n")
@@ -81,7 +81,7 @@ tap.close()
 ### Example 2: Save to WAV File
 
 ```python
-from proctap import ProcessAudioTap
+from proctap import ProcessAudioCapture
 import wave
 
 # Open WAV file for writing
@@ -95,7 +95,7 @@ def on_audio(pcm_data: bytes, frame_count: int):
     wav.writeframes(pcm_data)
 
 # Capture audio
-with ProcessAudioTap(pid=12345, on_data=on_audio):
+with ProcessAudioCapture(pid=12345, on_data=on_audio):
     input("Recording... Press Enter to stop.\n")
 
 wav.close()
@@ -106,10 +106,10 @@ print("Saved to output.wav")
 
 ```python
 import asyncio
-from proctap import ProcessAudioTap
+from proctap import ProcessAudioCapture
 
 async def capture_audio():
-    tap = ProcessAudioTap(pid=12345)
+    tap = ProcessAudioCapture(pid=12345)
     tap.start()
 
     # Process audio chunks asynchronously
@@ -147,13 +147,13 @@ ProcTap always provides audio in this format:
 ProcTap supports Python's `with` statement for automatic cleanup:
 
 ```python
-from proctap import ProcessAudioTap
+from proctap import ProcessAudioCapture
 
 def on_audio(data: bytes, frames: int):
     print(f"Audio: {len(data)} bytes")
 
 # Automatically calls close() when exiting
-with ProcessAudioTap(pid=12345, on_data=on_audio):
+with ProcessAudioCapture(pid=12345, on_data=on_audio):
     input("Press Enter to stop...\n")
 # tap.close() is called automatically
 ```
@@ -163,10 +163,10 @@ with ProcessAudioTap(pid=12345, on_data=on_audio):
 Always handle potential errors when working with process audio:
 
 ```python
-from proctap import ProcessAudioTap
+from proctap import ProcessAudioCapture
 
 try:
-    tap = ProcessAudioTap(pid=12345)
+    tap = ProcessAudioCapture(pid=12345)
     tap.start()
 
     input("Capturing... Press Enter to stop.\n")
@@ -186,7 +186,7 @@ finally:
 Here's a complete example that finds a process by name and records to WAV:
 
 ```python
-from proctap import ProcessAudioTap
+from proctap import ProcessAudioCapture
 import wave
 import psutil
 import sys
@@ -219,7 +219,7 @@ def main():
 
     # Start capture
     try:
-        with ProcessAudioTap(pid=pid, on_data=on_audio):
+        with ProcessAudioCapture(pid=pid, on_data=on_audio):
             print("Recording VRChat audio...")
             print("Press Enter to stop.")
             input()

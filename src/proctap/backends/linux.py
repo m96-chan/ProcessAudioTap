@@ -78,7 +78,7 @@ class LinuxAudioStrategy(ABC):
         pass
 
     @abstractmethod
-    def get_format(self) -> dict[str, int]:
+    def get_format(self) -> dict[str, int | object]:
         """
         Get audio format information.
 
@@ -271,6 +271,8 @@ class PulseAudioStrategy(LinuxAudioStrategy):
 
             while not self._stop_event.is_set():
                 try:
+                    if proc.stdout is None:
+                        break
                     chunk = proc.stdout.read(chunk_bytes)
                     if not chunk:
                         break
@@ -345,7 +347,7 @@ class PulseAudioStrategy(LinuxAudioStrategy):
             self._pulse = None
             logger.debug("Closed PulseAudio connection")
 
-    def get_format(self) -> dict[str, int]:
+    def get_format(self) -> dict[str, int | object]:
         """Get audio format information."""
         return {
             'sample_rate': self._sample_rate,
@@ -406,7 +408,7 @@ class LinuxBackend(AudioBackend):
 
         # Select strategy based on engine parameter
         if engine in ("auto", "pulse"):
-            self._strategy: Optional[LinuxAudioStrategy] = PulseAudioStrategy(
+            self._strategy: LinuxAudioStrategy = PulseAudioStrategy(
                 pid=pid,
                 sample_rate=sample_rate,
                 channels=channels,
@@ -478,7 +480,7 @@ class LinuxBackend(AudioBackend):
 
         return self._strategy.read_audio(timeout=0.1)
 
-    def get_format(self) -> dict[str, int]:
+    def get_format(self) -> dict[str, int | object]:
         """
         Get audio format information.
 

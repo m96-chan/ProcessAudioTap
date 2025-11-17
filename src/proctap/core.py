@@ -29,7 +29,7 @@ class StreamConfig:
     frames_per_buffer: int = 480  # 10ms @ 48kHz
 
 
-class ProcessAudioTap:
+class ProcessAudioCapture:
     """
     High-level API for process-specific audio capture.
 
@@ -52,6 +52,9 @@ class ProcessAudioTap:
         self._pid = pid
         self._on_data = on_data
 
+        # Declare backend type
+        self._backend: AudioBackend
+
         # If config is None, backend will use native format (no conversion)
         # Otherwise, backend will convert to the specified format
         if config is None:
@@ -64,19 +67,33 @@ class ProcessAudioTap:
             )
             native_format = temp_backend.get_format()
 
+            # Extract and validate format values
+            sample_rate_val = native_format['sample_rate']
+            channels_val = native_format['channels']
+            bits_per_sample_val = native_format['bits_per_sample']
+
+            # Type guard: ensure we have int values
+            assert isinstance(sample_rate_val, int), f"Expected int for sample_rate, got {type(sample_rate_val)}"
+            assert isinstance(channels_val, int), f"Expected int for channels, got {type(channels_val)}"
+            assert isinstance(bits_per_sample_val, int), f"Expected int for bits_per_sample, got {type(bits_per_sample_val)}"
+
+            sample_rate = sample_rate_val
+            channels = channels_val
+            bits_per_sample = bits_per_sample_val
+
             # Create StreamConfig from native format
             self._cfg = StreamConfig(
-                sample_rate=native_format['sample_rate'],
-                channels=native_format['channels'],
-                frames_per_buffer=int(native_format['sample_rate'] * 0.01),  # 10ms
+                sample_rate=sample_rate,
+                channels=channels,
+                frames_per_buffer=int(sample_rate * 0.01),  # 10ms
             )
 
             # Re-create backend with native format (no conversion needed)
-            self._backend: AudioBackend = get_backend(
+            self._backend = get_backend(
                 pid=pid,
                 sample_rate=self._cfg.sample_rate,
                 channels=self._cfg.channels,
-                sample_width=native_format['bits_per_sample'] // 8,
+                sample_width=bits_per_sample // 8,
             )
             logger.debug(
                 f"Using native format: {self._cfg.sample_rate}Hz, "
@@ -85,7 +102,7 @@ class ProcessAudioTap:
         else:
             self._cfg = config
             # Get platform-specific backend with specified format
-            self._backend: AudioBackend = get_backend(
+            self._backend = get_backend(
                 pid=pid,
                 sample_rate=self._cfg.sample_rate,
                 channels=self._cfg.channels,
@@ -127,7 +144,7 @@ class ProcessAudioTap:
     def close(self) -> None:
         self.stop()
 
-    def __enter__(self) -> "ProcessAudioTap":
+    def __enter__(self) -> "ProcessAudioCapture":
         self.start()
         return self
 
@@ -172,7 +189,24 @@ class ProcessAudioTap:
             - 'channels': Number of channels (e.g., 2 for stereo)
             - 'bits_per_sample': Bits per sample (e.g., 16)
         """
-        return self._backend.get_format()
+        fmt = self._backend.get_format()
+
+        # Extract and validate format values
+        sample_rate_val = fmt['sample_rate']
+        channels_val = fmt['channels']
+        bits_per_sample_val = fmt['bits_per_sample']
+
+        # Type guard: ensure we have int values
+        assert isinstance(sample_rate_val, int), f"Expected int for sample_rate, got {type(sample_rate_val)}"
+        assert isinstance(channels_val, int), f"Expected int for channels, got {type(channels_val)}"
+        assert isinstance(bits_per_sample_val, int), f"Expected int for bits_per_sample, got {type(bits_per_sample_val)}"
+
+        # Return only int values for basic format info
+        return {
+            'sample_rate': sample_rate_val,
+            'channels': channels_val,
+            'bits_per_sample': bits_per_sample_val,
+        }
 
     def read(self, timeout: float = 1.0) -> Optional[bytes]:
         """
