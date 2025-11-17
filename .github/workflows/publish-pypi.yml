@@ -71,6 +71,8 @@ jobs:
   publish-pypi:
     needs: build-wheels
     runs-on: ubuntu-latest   # pypa/gh-action-pypi-publish requires Linux
+    permissions:
+      id-token: write
 
     steps:
       - name: Download all artifacts
@@ -86,8 +88,6 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@v1.12.4
-        permissions:
-          id-token: write
         with:
           # user: __token__
           # password: ${{ secrets.PYPI_API_TOKEN }}
