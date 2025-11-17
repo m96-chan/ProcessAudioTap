@@ -52,6 +52,9 @@ class ProcessAudioCapture:
         self._pid = pid
         self._on_data = on_data
 
+        # Declare backend type
+        self._backend: AudioBackend
+
         # If config is None, backend will use native format (no conversion)
         # Otherwise, backend will convert to the specified format
         if config is None:
@@ -72,7 +75,7 @@ class ProcessAudioCapture:
             )
 
             # Re-create backend with native format (no conversion needed)
-            self._backend: AudioBackend = get_backend(
+            self._backend = get_backend(
                 pid=pid,
                 sample_rate=self._cfg.sample_rate,
                 channels=self._cfg.channels,
@@ -85,7 +88,7 @@ class ProcessAudioCapture:
         else:
             self._cfg = config
             # Get platform-specific backend with specified format
-            self._backend: AudioBackend = get_backend(
+            self._backend = get_backend(
                 pid=pid,
                 sample_rate=self._cfg.sample_rate,
                 channels=self._cfg.channels,

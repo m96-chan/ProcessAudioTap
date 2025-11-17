@@ -181,6 +181,7 @@ class RealtimeTranscriber:
         self.running = False
 
         # Initialize VAD filter
+        self.vad: Optional[EnergyVAD]
         if self.use_vad:
             self.vad = EnergyVAD(
                 threshold_db=vad_threshold_db,

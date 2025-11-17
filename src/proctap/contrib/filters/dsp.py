@@ -63,6 +63,8 @@ class HighPassFilter(BaseFilter):
 
         # Apply first-order IIR high-pass filter
         # y[n] = alpha * (y[n-1] + x[n] - x[n-1])
+        assert self.prev_input is not None and self.prev_output is not None
+
         if frame.ndim == 1:
             # Mono
             output = np.empty_like(frame)
@@ -196,6 +198,8 @@ class StereoToMono(BaseFilter):
 
         if frame.ndim == 2:
             # Average across channels
-            return np.mean(frame, axis=1, dtype=np.float32)
+            result = np.mean(frame, axis=1, dtype=np.float32)
+            # Ensure result is an ndarray (not a scalar)
+            return np.asarray(result, dtype=np.float32)
 
         raise ValueError(f"Expected 1D or 2D array, got shape {frame.shape}")

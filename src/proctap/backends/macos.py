@@ -261,7 +261,7 @@ class MacOSBackend(AudioBackend):
         except queue.Empty:
             return None
 
-    def get_format(self) -> dict[str, int]:
+    def get_format(self) -> dict[str, int | object]:
         """
         Get audio format information.
 
@@ -336,7 +336,7 @@ class MacOSBackend(AudioBackend):
 
         finally:
             # Check for errors from helper process
-            if self._process and self._process.poll() is not None:
+            if self._process and self._process.poll() is not None and self._process.stderr:
                 stderr_output = self._process.stderr.read().decode('utf-8', errors='ignore')
                 if stderr_output:
                     logger.error(f"Helper process error: {stderr_output}")

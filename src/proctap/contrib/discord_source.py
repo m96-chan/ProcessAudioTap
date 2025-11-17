@@ -157,6 +157,8 @@ class ProcessAudioSource(discord.AudioSource):
         while not self._stop_event.is_set():
             try:
                 # Read audio with timeout
+                if self._tap is None:
+                    break
                 chunk = self._tap.read(timeout=0.5)
 
                 if chunk is None or len(chunk) == 0:

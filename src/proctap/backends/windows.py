@@ -132,7 +132,7 @@ class WindowsBackend(AudioBackend):
 
         return data
 
-    def get_format(self) -> dict[str, int]:
+    def get_format(self) -> dict[str, int | object]:
         """
         Get audio format (output format after conversion).
 
