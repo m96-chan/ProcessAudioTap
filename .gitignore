@@ -208,3 +208,8 @@ marimo/_lsp/
 __marimo__/
 
 output.wav
+
+# Profiling results
+profiling_results/
+*.prof
+*.pstats
