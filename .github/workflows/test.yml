@@ -58,9 +58,12 @@ jobs:
         run: |
           pip install -e ".[dev]"
 
+      # Note: contrib dependencies (faster-whisper) are optional
+      # Tests are designed to work without them by skipping import-time errors
+
       - name: Run pytest
         run: |
-          pytest -v --tb=short
+          pytest
 
       - name: Run type checking (mypy)
         run: |

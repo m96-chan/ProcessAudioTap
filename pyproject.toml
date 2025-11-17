@@ -50,7 +50,7 @@ Issues = "https://github.com/m96-chan/ProcTap/issues"
 dev = [
     "pytest",
     "mypy",
-    "types-setuptools"
+    "types-setuptools",
 ]
 docs = [
     "mkdocs-material>=9.0.0",
@@ -58,6 +58,10 @@ docs = [
 ]
 linux = [
     "pulsectl>=23.5.0",
+]
+# Contrib modules with optional dependencies
+contrib = [
+    "faster-whisper>=1.0.0",
 ]
 # Legacy: samplerate is now included by default
 # This extra is kept for backwards compatibility
@@ -68,3 +72,13 @@ hq-resample = [
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["proctap*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+]

@@ -74,9 +74,9 @@ except ImportError:
 try:
     from faster_whisper import WhisperModel
 except ImportError:
-    print("Error: faster-whisper is not installed.")
-    print("Install with: pip install faster-whisper")
-    sys.exit(1)
+    # Allow module to be imported without faster-whisper for testing purposes
+    # Runtime error will be raised when RealtimeTranscriber is instantiated
+    WhisperModel = None  # type: ignore
 
 try:
     import numpy as np
@@ -196,6 +196,12 @@ class RealtimeTranscriber:
         self.skipped_chunks = 0
 
         # Initialize Whisper model
+        if WhisperModel is None:
+            raise ImportError(
+                "faster-whisper is not installed. "
+                "Install it with: pip install faster-whisper"
+            )
+
         print(f"Loading Whisper model '{model_size}' on {device}...")
         try:
             self.model = WhisperModel(
