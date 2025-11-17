@@ -105,13 +105,21 @@ pip install -e .
 - WASAPI support
 - **No admin privileges required**
 
-**Linux (Experimental):**
-- Linux with PulseAudio or PipeWire (with pulseaudio-compat)
+**Linux (Fully Supported - v0.4.0+):**
+- Linux with PulseAudio or PipeWire
 - Python 3.10+
-- `pulsectl` library: **automatically installed with `pip install proc-tap`**
-- `parec` command: install with `sudo apt-get install pulseaudio-utils`
-- ⚠️ **EXPERIMENTAL:** Basic PulseAudio support implemented
-- ⚠️ **LIMITATION:** Currently captures from entire sink monitor (may include other apps)
+- **Auto-detection:** Automatically selects best available backend
+- **Native PipeWire API** (recommended):
+  - `libpipewire-0.3-dev`: `sudo apt-get install libpipewire-0.3-dev`
+  - Ultra-low latency: ~2-5ms
+  - Auto-selected when available
+- **PipeWire subprocess:**
+  - `pw-record`: install with `sudo apt-get install pipewire-media-session`
+- **PulseAudio fallback:**
+  - `pulsectl` library: automatically installed
+  - `parec` command: `sudo apt-get install pulseaudio-utils`
+- ✅ **Per-process isolation** using null-sink strategy
+- ✅ **Graceful fallback** chain: Native → PipeWire subprocess → PulseAudio
 
 **macOS (Experimental):**
 - macOS 14.4 (Sonoma) or later

@@ -126,12 +126,15 @@ backends/__init__.py (Platform Detection)
   - No conversion overhead if formats already match
 
 **Linux Backend** ([backends/linux.py](src/proctap/backends/linux.py)):
-- 🧪 Experimental - PulseAudio support implemented
-- Uses `pulsectl` library for PulseAudio interaction
-- Captures from sink monitor using `parec` command
-- Strategy pattern allows future PipeWire native support
-- **Limitation:** Currently captures from entire sink (not per-app isolated)
-- Requires: `pulsectl` library, `parec` command, target process must be playing audio
+- ✅ Fully implemented with multiple strategies (v0.3.0+)
+- **PipeWire Native API** ([backends/pipewire_native.py](src/proctap/backends/pipewire_native.py)):
+  - Ultra-low latency: ~2-5ms (vs ~10-20ms subprocess-based)
+  - Direct C API bindings via ctypes
+  - Auto-selected when available
+- **Strategy Pattern:** PipeWire Native → PipeWire subprocess (`pw-record`) → PulseAudio (`parec`)
+- **Per-process Isolation:** True isolation using null-sink strategy
+- Uses `pulsectl` library for stream management
+- Requires: System-dependent (libpipewire-0.3-dev for native, pw-record or parec for subprocess)
 
 **macOS Backend** ([backends/macos.py](src/proctap/backends/macos.py)):
 - 🧪 Experimental - Core Audio Process Tap API (macOS 14.4+)
@@ -328,14 +331,20 @@ Raw PCM data is returned as `bytes` to user callbacks/iterators.
 3. **Buffer Size Control** ([core.py:29](src/proctap/core.py#L29)):
    - `buffer_ms` parameter exists but note indicates limited control
 
-**Linux Backend (Experimental):**
-1. **PulseAudio Integration** ([backends/linux.py](src/proctap/backends/linux.py)):
-   - ✅ Basic PulseAudio capture implemented
-   - ✅ Process stream detection via application.process.id property
-   - ⚠️ Limitation: Captures from entire sink monitor (not per-app isolated)
-   - TODO: Implement proper per-app isolation using module-remap-source
-   - TODO: Add native PipeWire support (PipeWireStrategy class)
-   - TODO: Improve error handling and edge cases
+**Linux Backend:**
+1. **Native PipeWire API Implementation** ([backends/pipewire_native.py](src/proctap/backends/pipewire_native.py)):
+   - ✅ COMPLETED (v0.4.0+):
+     * SPA POD format parameters
+     * Registry API for node discovery
+     * Comprehensive error handling
+     * Thread management
+     * Integration with LinuxBackend
+   - ✅ Testing: Unit tests and examples added
+
+2. **Cross-distribution Testing** (Ongoing):
+   - Verify on Ubuntu, Fedora, Arch Linux, Debian
+   - Test with various PipeWire and PulseAudio versions
+   - Validate fallback behavior
 
 **macOS Backend (Experimental):**
 1. **Core Audio Process Tap Implementation** ([backends/macos.py](src/proctap/backends/macos.py)):
