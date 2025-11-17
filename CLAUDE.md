@@ -8,16 +8,16 @@ ProcTap is a cross-platform Python library for capturing audio from specific pro
 
 **Platform Support:**
 - **Windows**: ✅ Fully implemented using WASAPI Process Loopback (C++ native extension)
-- **Linux**: 🧪 Experimental - PulseAudio backend (basic implementation with limitations)
-- **macOS**: 🧪 Experimental - Core Audio Process Tap via Swift CLI helper (macOS 14.4+)
+- **Linux**: ✅ Fully implemented - PulseAudio/PipeWire backend with multiple strategies
+- **macOS**: ✅ **Officially supported** - Core Audio Process Tap via PyObjC (macOS 14.4+)
 
 **Key Characteristics:**
 - Per-process audio isolation (not system-wide)
 - Low-latency streaming (10ms default buffer on Windows)
 - Platform-specific implementations:
   - Windows: WASAPI C++ extension (Windows 10 20H1+)
-  - Linux: PulseAudio backend (experimental)
-  - macOS: Core Audio Process Tap via Swift helper (macOS 14.4+, experimental)
+  - Linux: PulseAudio/PipeWire backend (native API + fallback strategies)
+  - **macOS: PyObjC + Core Audio Process Tap API (macOS 14.4+) - OFFICIAL**
 - Dual API: callback-based and async iterator patterns
 
 ## Development Guidelines
@@ -69,21 +69,18 @@ python examples/windows_basic.py --name "VRChat.exe" --output audio.wav
 # Linux example (requires pulseaudio-utils)
 python examples/linux_basic.py --pid 12345 --duration 5 --output output.wav
 
-# macOS example (requires macOS 14.4+, Swift helper)
+# macOS example (requires macOS 14.4+, PyObjC)
 python examples/macos_basic.py --pid 12345 --duration 5 --output output.wav
 ```
 
-### Building macOS Swift Helper
+### macOS Setup
 
 ```bash
-# Build Swift CLI helper for macOS
-cd swift/proctap-macos
-swift build -c release
+# Install PyObjC dependencies for macOS backend
+pip install pyobjc-core pyobjc-framework-CoreAudio
 
-# Copy to package directory
-cp .build/release/proctap-macos ../../src/proctap/bin/
-
-# The setup.py build system will do this automatically on macOS if Swift toolchain is available
+# Or install with optional dependencies
+pip install -e ".[macos]"
 ```
 
 ## Architecture
@@ -97,21 +94,21 @@ ProcTap (core.py - Public API)
     ↓
 backends/__init__.py (Platform Detection)
     ↓
-┌─────────────────┬──────────────────┬──────────────────┐
-│ Windows         │ Linux            │ macOS            │
-│ (Implemented)   │ (Experimental)   │ (Experimental)   │
-├─────────────────┼──────────────────┼──────────────────┤
-│ WindowsBackend  │ LinuxBackend     │ MacOSBackend     │
-│ └─ _native.cpp  │ └─ PulseAudio    │ └─ Swift CLI     │
-│    (WASAPI)     │    (parec)       │    (Process Tap) │
-└─────────────────┴──────────────────┴──────────────────┘
+┌─────────────────┬──────────────────┬──────────────────────┐
+│ Windows         │ Linux            │ macOS                │
+│ (Implemented)   │ (Implemented)    │ (Implemented)        │
+├─────────────────┼──────────────────┼──────────────────────┤
+│ WindowsBackend  │ LinuxBackend     │ MacOSNativeBackend   │
+│ └─ _native.cpp  │ └─ PulseAudio/   │ └─ PyObjC            │
+│    (WASAPI)     │    PipeWire      │    (Process Tap API) │
+└─────────────────┴──────────────────┴──────────────────────┘
 ```
 
 **Backend Selection** ([backends/__init__.py](src/proctap/backends/__init__.py)):
 - Automatic platform detection using `platform.system()`
 - Windows: Uses native C++ extension with WASAPI
-- Linux: PulseAudio backend (experimental)
-- macOS: Core Audio Process Tap via Swift CLI helper (experimental)
+- Linux: PulseAudio/PipeWire backend with multiple strategies
+- **macOS: PyObjC + Core Audio Process Tap API (OFFICIAL)**
 
 **Windows Backend** ([backends/windows.py](src/proctap/backends/windows.py)):
 - Wraps `_native.cpp` C++ extension
@@ -136,19 +133,28 @@ backends/__init__.py (Platform Detection)
 - Uses `pulsectl` library for stream management
 - Requires: System-dependent (libpipewire-0.3-dev for native, pw-record or parec for subprocess)
 
-**macOS Backend** ([backends/macos.py](src/proctap/backends/macos.py)):
-- 🧪 Experimental - Core Audio Process Tap API (macOS 14.4+)
-- Uses Swift CLI helper binary (proctap-macos) that wraps Core Audio APIs
-- Swift helper outputs raw PCM to stdout, Python reads from subprocess pipe
+**macOS Backend** ([backends/macos_pyobjc.py](src/proctap/backends/macos_pyobjc.py)):
+- ✅ **OFFICIAL** - Core Audio Process Tap API via PyObjC (macOS 14.4+)
+- Direct Python integration with Core Audio framework using ctypes
+- **Advantages:**
+  - No subprocess overhead
+  - Better error handling (Python exceptions)
+  - Simple deployment (pip install only)
+  - No binary compilation required
 - **Requirements:**
   - macOS 14.4 (Sonoma) or later
-  - Swift CLI helper binary (built with SwiftPM)
-  - Audio capture permission (NSAudioCaptureUsageDescription)
+  - PyObjC: `pip install pyobjc-core pyobjc-framework-CoreAudio`
+  - Audio capture permission
   - Target process must be actively playing audio
 - **Implementation:**
-  - Python side: Version detection, subprocess management, PCM reading
-  - Swift side: Core Audio Process Tap API, aggregate device creation, IOProc callback
-  - See [swift/proctap-macos/](swift/proctap-macos/) for Swift helper source
+  - Uses ctypes to load Core Audio framework
+  - Implements Process Tap creation and IOProc callbacks
+  - Queue-based audio buffer management
+  - See [backends/macos_pyobjc.py](src/proctap/backends/macos_pyobjc.py) for implementation
+
+**Experimental Backends** (NOT RECOMMENDED):
+- Swift CLI helper: [experimental/macos_swift_cli.py](src/proctap/experimental/macos_swift_cli.py) - Has stability issues
+- C extension: [experimental/macos_c_extension.py](src/proctap/experimental/macos_c_extension.py) - Incomplete implementation
 
 ### Threading Model
 
@@ -216,13 +222,10 @@ The build system ([setup.py](setup.py)) automatically detects the platform and b
 - System dependencies: `pulseaudio-utils` package
 
 **macOS Builds:**
-- Swift CLI helper (proctap-macos) built with SwiftPM
-- Custom `build_py` command in setup.py:
-  - Runs `swift build -c release` in `swift/proctap-macos/`
-  - Copies binary to `src/proctap/bin/`
-  - Makes binary executable
-- Gracefully degrades if Swift toolchain not available
-- Binary included in wheel via `package_data`
+- Pure Python backend using PyObjC (no compilation needed)
+- PyObjC dependencies installed automatically on macOS via environment markers
+- No Swift toolchain or Xcode required
+- **Experimental backends** (Swift CLI, C extension) are in `src/proctap/experimental/` and not recommended
 
 ## Python Dependencies
 
@@ -237,7 +240,7 @@ The build system ([setup.py](setup.py)) automatically detects the platform and b
     - Falls back to scipy if not available
 - **Windows**: Uses native C++ extension + Python format conversion
 - **Linux**: `pulsectl>=23.5.0` (automatically installed via environment markers in pyproject.toml)
-- **macOS**: No additional dependencies (uses Swift CLI helper binary)
+- **macOS**: `pyobjc-core>=9.0`, `pyobjc-framework-CoreAudio>=9.0` (automatically installed via environment markers in pyproject.toml)
 
 **System Dependencies (Linux only):**
 - `parec` command from `pulseaudio-utils` package

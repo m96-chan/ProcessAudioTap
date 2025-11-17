@@ -62,8 +62,33 @@ def get_backend(
         )
 
     elif system == "Darwin":  # macOS
-        from .macos import MacOSBackend
-        return MacOSBackend(pid)
+        # Official macOS backend: PyObjC (Phase 3)
+        # Other backends (Swift CLI, C extension) are experimental only
+
+        try:
+            from .macos_pyobjc import MacOSNativeBackend, is_available
+            if is_available():
+                import logging
+                logging.getLogger(__name__).info(
+                    "Using PyObjC backend (Official macOS backend - Phase 3)"
+                )
+                return MacOSNativeBackend(
+                    pid=pid,
+                    sample_rate=sample_rate,
+                    channels=channels,
+                    sample_width=sample_width,
+                )
+            else:
+                raise RuntimeError(
+                    "Core Audio framework not available. "
+                    "macOS 14.4+ (Sonoma) is required for Process Tap API."
+                )
+        except ImportError as e:
+            raise RuntimeError(
+                "macOS backend requires PyObjC. Install with:\n"
+                "  pip install pyobjc-core pyobjc-framework-CoreAudio\n"
+                f"Error: {e}"
+            ) from e
 
     else:
         raise NotImplementedError(
