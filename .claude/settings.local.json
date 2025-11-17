@@ -4,7 +4,8 @@
       "Bash(git mv:*)",
       "Bash(move:*)",
       "Bash(python:*)",
-      "Bash(./cuda_env/Scripts/python.exe:*)"
+      "Bash(./cuda_env/Scripts/python.exe:*)",
+      "Bash(python3.12 -m mypy:*)"
     ],
     "deny": [],
     "ask": []

@@ -26,10 +26,10 @@ Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
 | Platform | Status | Backend | Notes |
 |----------|--------|---------|-------|
 | **Windows** | ✅ **Fully Supported** | WASAPI (C++ native) | Windows 10/11 (20H1+) |
-| **Linux** | 🧪 **Experimental** | PulseAudio/PipeWire | Basic support, sink monitor capture |
+| **Linux** | ✅ **Fully Supported** | PipeWire Native / PulseAudio | Per-process isolation, auto-fallback (v0.4.0+) |
 | **macOS** | 🧪 **Experimental** | Core Audio Process Tap | macOS 14.4+ (Sonoma) required |
 
-<sub>\* Linux and macOS support are experimental with limitations (see requirements). Windows is currently the only fully functional platform.</sub>
+<sub>\* Linux is fully supported with PipeWire/PulseAudio (v0.4.0+). macOS support is experimental (see requirements).</sub>
 
 </div>
 
@@ -105,13 +105,21 @@ pip install -e .
 - WASAPI support
 - **No admin privileges required**
 
-**Linux (Experimental):**
-- Linux with PulseAudio or PipeWire (with pulseaudio-compat)
+**Linux (Fully Supported - v0.4.0+):**
+- Linux with PulseAudio or PipeWire
 - Python 3.10+
-- `pulsectl` library: **automatically installed with `pip install proc-tap`**
-- `parec` command: install with `sudo apt-get install pulseaudio-utils`
-- ⚠️ **EXPERIMENTAL:** Basic PulseAudio support implemented
-- ⚠️ **LIMITATION:** Currently captures from entire sink monitor (may include other apps)
+- **Auto-detection:** Automatically selects best available backend
+- **Native PipeWire API** (recommended):
+  - `libpipewire-0.3-dev`: `sudo apt-get install libpipewire-0.3-dev`
+  - Ultra-low latency: ~2-5ms
+  - Auto-selected when available
+- **PipeWire subprocess:**
+  - `pw-record`: install with `sudo apt-get install pipewire-media-session`
+- **PulseAudio fallback:**
+  - `pulsectl` library: automatically installed
+  - `parec` command: `sudo apt-get install pulseaudio-utils`
+- ✅ **Per-process isolation** using null-sink strategy
+- ✅ **Graceful fallback** chain: Native → PipeWire subprocess → PulseAudio
 
 **macOS (Experimental):**
 - macOS 14.4 (Sonoma) or later
