@@ -121,7 +121,10 @@ class ProcessAudioCapture:
     def start(self) -> None:
         if self._thread is not None:
             # すでに start 済みなら何もしない
+            logger.debug("Already started, skipping")
             return
+
+        logger.debug("Starting ProcessAudioCapture...")
 
         # Start platform-specific backend
         self._backend.start()
@@ -129,6 +132,8 @@ class ProcessAudioCapture:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
+
+        logger.debug(f"Worker thread started: {self._thread.name}, is_alive: {self._thread.is_alive()}")
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -254,6 +259,7 @@ class ProcessAudioCapture:
             -> callback
             -> async_queue
         """
+        logger.debug(f"Worker thread started, on_data callback is {'set' if self._on_data else 'None'}")
         while not self._stop_event.is_set():
             try:
                 data = self._backend.read()
@@ -263,13 +269,17 @@ class ProcessAudioCapture:
 
             if not data:
                 # パケットがまだ無いケース。ここで sleep 入れるかは後で調整。
+                logger.debug("No data from backend.read(), continuing")
                 continue
+
+            logger.debug(f"Received {len(data)} bytes from backend")
 
             # callback
             if self._on_data is not None:
                 try:
                     # frames 数は backend から直接取れないので、とりあえず -1 を渡す。
                     # TODO: _backend.get_format() を見て frame 数を計算する改善余地あり。
+                    logger.debug(f"Calling on_data callback with {len(data)} bytes")
                     self._on_data(data, -1)
                 except Exception:
                     logger.exception("Error in audio callback")
