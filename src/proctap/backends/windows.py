@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Optional
 import logging
-import sys
 
 from .base import AudioBackend
 from .converter import AudioConverter, is_conversion_needed, SampleFormat
@@ -97,19 +96,7 @@ class WindowsBackend(AudioBackend):
             'bits_per_sample': sample_width * 8,
             'sample_format': sample_format,
         }
-        # Debug: Count instances
-        if not hasattr(WindowsBackend, '_instance_count'):
-            WindowsBackend._instance_count = 0
-        WindowsBackend._instance_count += 1
-
-        print(f"[WINDOWS BACKEND #{WindowsBackend._instance_count}] Initialized with output_format: {self._output_format}")
-        logger.debug(f"WindowsBackend #{WindowsBackend._instance_count} initialized with output_format: {self._output_format}")
-
-        # Debug: Print stack trace to see where this backend is being created
-        import traceback
-        print(f"[WINDOWS BACKEND #{WindowsBackend._instance_count}] Stack trace:", file=sys.stderr)
-        traceback.print_stack(file=sys.stderr)
-        logger.debug(f"Backend #{WindowsBackend._instance_count} creation stack trace:\n{''.join(traceback.format_stack())}")
+        logger.debug(f"WindowsBackend initialized with output_format: {self._output_format}")
 
     def start(self) -> None:
         """Start WASAPI audio capture."""
@@ -161,6 +148,5 @@ class WindowsBackend(AudioBackend):
             Returns the converted output format, not the native WASAPI format.
             To get the native format, use self._native.get_format() directly.
         """
-        print(f"[WINDOWS BACKEND] get_format() called, returning: {self._output_format}")
         logger.debug(f"get_format() returning: {self._output_format}")
         return self._output_format
