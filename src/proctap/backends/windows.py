@@ -101,8 +101,9 @@ class WindowsBackend(AudioBackend):
 
     def start(self) -> None:
         """Start WASAPI audio capture."""
+        logger.debug(f"Starting WASAPI capture for PID {self._pid}")
         self._native.start()
-        logger.debug(f"Started audio capture for PID {self._pid}")
+        logger.debug(f"WASAPI capture started successfully for PID {self._pid}")
 
     def stop(self) -> None:
         """Stop WASAPI audio capture."""
@@ -121,11 +122,14 @@ class WindowsBackend(AudioBackend):
             or empty bytes if no data available
         """
         data = self._native.read()
+        logger.debug(f"Native read: {len(data) if data else 0} bytes")
 
         # Apply format conversion if needed
         if self._converter and data:
             try:
+                data_before = len(data)
                 data = self._converter.convert(data)
+                logger.debug(f"Converted: {data_before} -> {len(data) if data else 0} bytes")
             except Exception as e:
                 logger.error(f"Error converting audio format: {e}")
                 return b''
