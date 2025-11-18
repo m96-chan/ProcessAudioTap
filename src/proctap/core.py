@@ -270,6 +270,7 @@ class ProcessAudioCapture:
                 try:
                     # frames 数は backend から直接取れないので、とりあえず -1 を渡す。
                     # TODO: _backend.get_format() を見て frame 数を計算する改善余地あり。
+                    logger.debug(f"Calling on_data callback with {len(data)} bytes")
                     self._on_data(data, -1)
                 except Exception:
                     logger.exception("Error in audio callback")
