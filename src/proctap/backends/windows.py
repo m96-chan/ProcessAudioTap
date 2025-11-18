@@ -101,8 +101,9 @@ class WindowsBackend(AudioBackend):
 
     def start(self) -> None:
         """Start WASAPI audio capture."""
+        logger.debug(f"Starting WASAPI capture for PID {self._pid}")
         self._native.start()
-        logger.debug(f"Started audio capture for PID {self._pid}")
+        logger.debug(f"WASAPI capture started successfully for PID {self._pid}")
 
     def stop(self) -> None:
         """Stop WASAPI audio capture."""
