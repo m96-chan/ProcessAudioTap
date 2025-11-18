@@ -9,5 +9,6 @@ except PackageNotFoundError:
     __version__ = "0.0.0"
 
 from .core import ProcessAudioCapture, StreamConfig
+from .format import ResamplingQuality
 
-__all__ = ["ProcessAudioCapture", "StreamConfig", "__version__"]
+__all__ = ["ProcessAudioCapture", "StreamConfig", "ResamplingQuality", "__version__"]

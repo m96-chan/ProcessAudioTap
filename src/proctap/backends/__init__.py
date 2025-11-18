@@ -11,6 +11,8 @@ import sys
 import platform
 from typing import TYPE_CHECKING
 
+from ..format import ResamplingQuality
+
 if TYPE_CHECKING:
     from .base import AudioBackend
 
@@ -20,6 +22,8 @@ def get_backend(
     sample_rate: int = 44100,
     channels: int = 2,
     sample_width: int = 2,
+    resample_quality: ResamplingQuality | None = None,
+    use_native_converter: bool = False,
 ) -> "AudioBackend":
     """
     Get the appropriate audio capture backend for the current platform.
@@ -50,6 +54,8 @@ def get_backend(
             sample_rate=sample_rate,
             channels=channels,
             sample_width=sample_width,
+            resample_quality=resample_quality,
+            use_native_converter=use_native_converter,
         )
 
     elif system == "Linux":

@@ -213,6 +213,19 @@ static PyObject* detect_format(PyObject* self, PyObject* args) {
     return PyUnicode_FromString("unknown");
 }
 
+/**
+ * Check if high-quality resampling backend (libsamplerate) is available.
+ *
+ * Returns:
+ *     bool: True if available, False otherwise
+ */
+static PyObject* is_high_quality_available(PyObject* self, PyObject* args) {
+    if (AudioResampler::HasHighQualityBackend()) {
+        Py_RETURN_TRUE;
+    }
+    Py_RETURN_FALSE;
+}
+
 // Module methods
 static PyMethodDef AudioConverterMethods[] = {
     {"convert_int16_to_float32", convert_int16_to_float32, METH_VARARGS,
@@ -223,6 +236,8 @@ static PyMethodDef AudioConverterMethods[] = {
      "Get detected CPU features (SSE2, AVX, AVX2)"},
     {"detect_format", detect_format, METH_VARARGS,
      "Detect audio format (int16 or float32) from PCM data"},
+    {"is_high_quality_available", is_high_quality_available, METH_NOARGS,
+     "Return True if libsamplerate backend is available"},
     {nullptr, nullptr, 0, nullptr}
 };
 

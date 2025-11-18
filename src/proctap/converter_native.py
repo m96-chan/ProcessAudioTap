@@ -8,10 +8,56 @@ Falls back to pure Python implementation if the native extension is not availabl
 from __future__ import annotations
 from typing import Optional
 import logging
+import os
+import sys
+from pathlib import Path
 
 from .format import ResamplingQuality, FIXED_AUDIO_FORMAT
 
 logger = logging.getLogger(__name__)
+
+_LIBSAMPLERATE_SETUP = False
+
+
+def _add_dll_directory(path: Path) -> None:
+    """Add directory to DLL search path on Windows."""
+    if not path.exists():
+        return
+
+    directory = path if path.is_dir() else path.parent
+    if not directory.exists():
+        return
+
+    if hasattr(os, "add_dll_directory"):
+        os.add_dll_directory(str(directory))
+    else:
+        os.environ["PATH"] = f"{directory}{os.pathsep}{os.environ.get('PATH', '')}"
+
+
+def _ensure_libsamplerate_search_path() -> None:
+    """Ensure libsamplerate DLL can be discovered on Windows."""
+    global _LIBSAMPLERATE_SETUP
+    if _LIBSAMPLERATE_SETUP or sys.platform != "win32":
+        return
+
+    _LIBSAMPLERATE_SETUP = True
+
+    env_path = os.environ.get("LIBSAMPLERATE_PATH")
+    if env_path:
+        _add_dll_directory(Path(env_path))
+
+    try:
+        import samplerate  # type: ignore
+
+        samplerate_path = Path(samplerate.__file__).resolve()
+        _add_dll_directory(samplerate_path)
+        logger.debug(f"Added libsamplerate search path: {samplerate_path.parent}")
+    except Exception:
+        logger.debug("samplerate package not available for DLL path discovery")
+
+
+# Configure DLL search path before importing native extension
+_ensure_libsamplerate_search_path()
 
 # Try to import native C++ extension
 try:
@@ -52,6 +98,17 @@ class NativeAudioConverter:
 
         self.quality = quality
         self.quality_str = quality.value
+        if (
+            self.quality == ResamplingQuality.HIGH_QUALITY
+            and not self.has_high_quality_backend()
+        ):
+            logger.warning(
+                "High-quality resampling requested but libsamplerate backend "
+                "is not available. Falling back to low-latency mode."
+            )
+            self.quality = ResamplingQuality.LOW_LATENCY
+            self.quality_str = self.quality.value
+
         logger.debug(f"NativeAudioConverter initialized with quality={self.quality_str}")
 
     @staticmethod
@@ -70,6 +127,22 @@ class NativeAudioConverter:
         if HAS_NATIVE_CONVERTER:
             return _audio_converter.get_cpu_features()
         return {"sse2": False, "avx": False, "avx2": False}
+
+    @staticmethod
+    def has_high_quality_backend() -> bool:
+        """Return True if libsamplerate backend is available."""
+        if not HAS_NATIVE_CONVERTER:
+            return False
+
+        checker = getattr(_audio_converter, "is_high_quality_available", None)
+        if checker is None:
+            return False
+
+        try:
+            return bool(checker())
+        except Exception:
+            logger.debug("Failed to query libsamplerate availability", exc_info=True)
+            return False
 
     @staticmethod
     def detect_format(data: bytes) -> str:

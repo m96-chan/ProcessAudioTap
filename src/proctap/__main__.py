@@ -12,6 +12,7 @@ import argparse
 import sys
 import signal
 import logging
+import platform
 from typing import Optional
 
 try:
@@ -20,6 +21,7 @@ except ImportError:
     psutil = None  # type: ignore
 
 from .core import ProcessAudioCapture, StreamConfig
+from .format import ResamplingQuality
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +100,18 @@ Examples:
         help="Number of channels: 1=mono, 2=stereo (default: 2)"
     )
     parser.add_argument(
+        '--native-converter',
+        action='store_true',
+        help="Windows only: use native SIMD converter pipeline (beta)"
+    )
+    parser.add_argument(
+        '--quality',
+        type=str,
+        default='low',
+        choices=['low', 'high'],
+        help="Resampling quality for native converter: low (linear) or high (libsamplerate)"
+    )
+    parser.add_argument(
         '--verbose',
         action='store_true',
         help="Enable verbose logging (to stderr)"
@@ -125,6 +139,16 @@ Examples:
     if not args.stdout:
         parser.error("--stdout is currently required (other output modes not yet implemented)")
 
+    use_native = bool(args.native_converter)
+    if use_native and platform.system() != "Windows":
+        parser.error("--native-converter option is only available on Windows")
+
+    quality = (
+        ResamplingQuality.HIGH_QUALITY
+        if args.quality == 'high'
+        else ResamplingQuality.LOW_LATENCY
+    )
+
     # Resolve PID
     pid: int
     if args.name:
@@ -145,7 +169,12 @@ Examples:
     config = StreamConfig(
         sample_rate=args.sample_rate,
         channels=args.channels,
+        resample_quality=quality,
+        use_native_converter=use_native,
     )
+
+    if use_native:
+        logger.info(f"Native converter enabled (quality={quality.name.lower()})")
 
     logger.info(f"Audio format: {config.sample_rate}Hz, {config.channels}ch, 16-bit PCM")
     logger.info(f"FFmpeg format args: -f s16le -ar {config.sample_rate} -ac {config.channels}")

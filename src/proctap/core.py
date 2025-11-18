@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 from .backends import get_backend
 from .backends.base import AudioBackend
+from .format import ResamplingQuality
 
 AudioCallback = Callable[[bytes, int], None]  # (pcm_bytes, num_frames)
 
@@ -28,6 +29,8 @@ class StreamConfig:
     # 現状 backend 側でバッファサイズは制御していないので
     # frames_per_buffer は「論理的なサイズ」として扱うだけ。
     frames_per_buffer: int = 480  # 10ms @ 48kHz
+    resample_quality: ResamplingQuality = ResamplingQuality.LOW_LATENCY
+    use_native_converter: bool = False
 
 
 class ProcessAudioCapture:
@@ -66,12 +69,17 @@ class ProcessAudioCapture:
                 sample_rate=44100,
                 channels=2,
                 frames_per_buffer=441,  # 10ms at 44.1kHz
+                sample_width=2,
+                resample_quality=ResamplingQuality.LOW_LATENCY,
+                use_native_converter=False,
             )
             self._backend = get_backend(
                 pid=pid,
                 sample_rate=44100,
                 channels=2,
                 sample_width=2,  # 16-bit
+                resample_quality=self._cfg.resample_quality,
+                use_native_converter=self._cfg.use_native_converter,
             )
         else:
             self._cfg = config
@@ -80,7 +88,9 @@ class ProcessAudioCapture:
                 pid=pid,
                 sample_rate=self._cfg.sample_rate,
                 channels=self._cfg.channels,
-                sample_width=2,  # 16-bit = 2 bytes
+                sample_width=self._cfg.sample_width,
+                resample_quality=self._cfg.resample_quality,
+                use_native_converter=self._cfg.use_native_converter,
             )
 
         logger.debug(f"Using backend: {type(self._backend).__name__}")

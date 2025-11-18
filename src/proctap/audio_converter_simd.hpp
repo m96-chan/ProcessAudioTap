@@ -11,8 +11,19 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <cstdlib>
+#include <limits>
+#include <mutex>
+#include <string>
+
 #include <immintrin.h>  // SSE2, AVX, AVX2
 #include <intrin.h>     // __cpuid for MSVC
+
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 namespace proctap {
 
@@ -177,6 +188,13 @@ enum class ResamplingQuality {
 class AudioResampler {
 public:
     /**
+     * Check if libsamplerate backend is available.
+     */
+    static bool HasHighQualityBackend() {
+        return LibSampleRate::IsAvailable();
+    }
+
+    /**
      * Resample audio data
      *
      * @param src Source float32 buffer
@@ -194,13 +212,170 @@ public:
         if (quality == ResamplingQuality::LowLatency) {
             ResampleLinear(src, src_frames, dst, dst_frames, channels);
         } else {
-            // TODO: Implement libsamplerate integration
-            // For now, fallback to linear
-            ResampleLinear(src, src_frames, dst, dst_frames, channels);
+            if (!ResampleHighQuality(src, src_frames, dst, dst_frames, channels)) {
+                // Fallback to linear interpolation if high-quality backend unavailable
+                ResampleLinear(src, src_frames, dst, dst_frames, channels);
+            }
         }
     }
 
 private:
+    /**
+     * Wrapper around libsamplerate (loaded dynamically).
+     */
+    class LibSampleRate {
+    public:
+        struct SRC_DATA {
+            const float* data_in;
+            float* data_out;
+            long input_frames;
+            long output_frames;
+            long input_frames_used;
+            long output_frames_gen;
+            int end_of_input;
+            double src_ratio;
+        };
+
+        using SrcSimpleFn = int (*)(SRC_DATA*, int, int);
+
+        static bool IsAvailable() {
+            EnsureInitialized();
+            return src_simple_fn_ != nullptr;
+        }
+
+        static bool Resample(
+            const float* src, size_t src_frames,
+            float* dst, size_t dst_frames,
+            int channels
+        ) {
+            EnsureInitialized();
+            if (!src_simple_fn_ || src_frames == 0 || dst_frames == 0) {
+                return false;
+            }
+
+            const auto max_long = static_cast<size_t>(std::numeric_limits<long>::max());
+            if (src_frames > max_long || dst_frames > max_long) {
+                return false;
+            }
+
+            SRC_DATA data{};
+            data.data_in = src;
+            data.data_out = dst;
+            data.input_frames = static_cast<long>(src_frames);
+            data.output_frames = static_cast<long>(dst_frames);
+            data.input_frames_used = 0;
+            data.output_frames_gen = 0;
+            data.end_of_input = 1;
+            data.src_ratio = static_cast<double>(dst_frames) / static_cast<double>(src_frames);
+
+            const int converter_type = 0;  // SRC_SINC_BEST_QUALITY
+            const int err = src_simple_fn_(&data, converter_type, channels);
+            return err == 0;
+        }
+
+    private:
+        inline static std::once_flag init_flag_;
+#if defined(_WIN32)
+        inline static HMODULE library_handle_ = nullptr;
+#else
+        inline static void* library_handle_ = nullptr;
+#endif
+        inline static SrcSimpleFn src_simple_fn_ = nullptr;
+
+        static void EnsureInitialized() {
+            std::call_once(init_flag_, []() {
+                LoadLibraryHandle();
+                if (!library_handle_) {
+                    return;
+                }
+#if defined(_WIN32)
+                src_simple_fn_ = reinterpret_cast<SrcSimpleFn>(
+                    GetProcAddress(library_handle_, "src_simple")
+                );
+#else
+                src_simple_fn_ = reinterpret_cast<SrcSimpleFn>(
+                    dlsym(library_handle_, "src_simple")
+                );
+#endif
+                if (!src_simple_fn_) {
+                    ReleaseLibrary();
+                }
+            });
+        }
+
+        static void ReleaseLibrary() {
+#if defined(_WIN32)
+            if (library_handle_) {
+                FreeLibrary(library_handle_);
+                library_handle_ = nullptr;
+            }
+#else
+            if (library_handle_) {
+                dlclose(library_handle_);
+                library_handle_ = nullptr;
+            }
+#endif
+            src_simple_fn_ = nullptr;
+        }
+
+        static void LoadLibraryHandle() {
+#if defined(_WIN32)
+            // Try environment variable first (expects absolute DLL path)
+            const char* env_path = std::getenv("LIBSAMPLERATE_PATH");
+            if (env_path && env_path[0] != '\0') {
+                const int wide_len = MultiByteToWideChar(
+                    CP_UTF8, 0, env_path, -1, nullptr, 0
+                );
+                if (wide_len > 0) {
+                    std::wstring wide_path(static_cast<size_t>(wide_len), L'\0');
+                    MultiByteToWideChar(
+                        CP_UTF8, 0, env_path, -1, wide_path.data(), wide_len
+                    );
+                    library_handle_ = LoadLibraryW(wide_path.c_str());
+                }
+            }
+
+            if (!library_handle_) {
+                const wchar_t* dll_names[] = {
+                    L"libsamplerate-0.dll",
+                    L"samplerate.dll"
+                };
+                for (const auto* name : dll_names) {
+                    library_handle_ = LoadLibraryW(name);
+                    if (library_handle_) {
+                        break;
+                    }
+                }
+            }
+#else
+            const char* env_path = std::getenv("LIBSAMPLERATE_PATH");
+            if (env_path && env_path[0] != '\0') {
+                library_handle_ = dlopen(env_path, RTLD_LAZY);
+            }
+            if (!library_handle_) {
+                const char* so_names[] = {"libsamplerate.so.0", "libsamplerate.so"};
+                for (const auto* name : so_names) {
+                    library_handle_ = dlopen(name, RTLD_LAZY);
+                    if (library_handle_) {
+                        break;
+                    }
+                }
+            }
+#endif
+        }
+    };
+
+    /**
+     * High-quality resampler using libsamplerate.
+     */
+    static bool ResampleHighQuality(
+        const float* src, size_t src_frames,
+        float* dst, size_t dst_frames,
+        int channels
+    ) {
+        return LibSampleRate::Resample(src, src_frames, dst, dst_frames, channels);
+    }
+
     /**
      * Linear interpolation resampler (low latency, SIMD optimized)
      */
