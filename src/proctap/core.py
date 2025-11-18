@@ -56,49 +56,22 @@ class ProcessAudioCapture:
         # Declare backend type
         self._backend: AudioBackend
 
-        # If config is None, backend will use native format (no conversion)
+        # If config is None, use native WASAPI format without conversion
         # Otherwise, backend will convert to the specified format
         if config is None:
-            # FIXME: Creating a temporary backend causes issues with C++ extension
-            # Use hardcoded native format (44.1kHz, 2ch, 16-bit) instead
-            logger.debug("Using hardcoded native format (44100Hz, 2ch, 16-bit)")
-            native_format = {
-                'sample_rate': 44100,
-                'channels': 2,
-                'bits_per_sample': 16,
-            }
-
-            # Extract and validate format values
-            sample_rate_val = native_format['sample_rate']
-            channels_val = native_format['channels']
-            bits_per_sample_val = native_format['bits_per_sample']
-
-            # Type guard: ensure we have int values
-            assert isinstance(sample_rate_val, int), f"Expected int for sample_rate, got {type(sample_rate_val)}"
-            assert isinstance(channels_val, int), f"Expected int for channels, got {type(channels_val)}"
-            assert isinstance(bits_per_sample_val, int), f"Expected int for bits_per_sample, got {type(bits_per_sample_val)}"
-
-            sample_rate = sample_rate_val
-            channels = channels_val
-            bits_per_sample = bits_per_sample_val
-
-            # Create StreamConfig from native format
+            # Use native WASAPI format (44.1kHz, 2ch, 16-bit) - no conversion needed
+            # This avoids creating a temporary backend which causes issues with C++ extension
+            logger.debug("Using native WASAPI format (44100Hz, 2ch, 16-bit) - no conversion")
             self._cfg = StreamConfig(
-                sample_rate=sample_rate,
-                channels=channels,
-                frames_per_buffer=int(sample_rate * 0.01),  # 10ms
+                sample_rate=44100,
+                channels=2,
+                frames_per_buffer=441,  # 10ms at 44.1kHz
             )
-
-            # Re-create backend with native format (no conversion needed)
             self._backend = get_backend(
                 pid=pid,
-                sample_rate=self._cfg.sample_rate,
-                channels=self._cfg.channels,
-                sample_width=bits_per_sample // 8,
-            )
-            logger.debug(
-                f"Using native format: {self._cfg.sample_rate}Hz, "
-                f"{self._cfg.channels}ch, {native_format['bits_per_sample']}bit"
+                sample_rate=44100,
+                channels=2,
+                sample_width=2,  # 16-bit
             )
         else:
             self._cfg = config
