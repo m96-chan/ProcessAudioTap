@@ -59,14 +59,14 @@ class ProcessAudioCapture:
         # If config is None, backend will use native format (no conversion)
         # Otherwise, backend will convert to the specified format
         if config is None:
-            # Create a temporary backend to get native format
-            temp_backend = get_backend(
-                pid=pid,
-                sample_rate=44100,  # Default values (will be replaced)
-                channels=2,
-                sample_width=2,
-            )
-            native_format = temp_backend.get_format()
+            # FIXME: Creating a temporary backend causes issues with C++ extension
+            # Use hardcoded native format (44.1kHz, 2ch, 16-bit) instead
+            logger.debug("Using hardcoded native format (44100Hz, 2ch, 16-bit)")
+            native_format = {
+                'sample_rate': 44100,
+                'channels': 2,
+                'bits_per_sample': 16,
+            }
 
             # Extract and validate format values
             sample_rate_val = native_format['sample_rate']

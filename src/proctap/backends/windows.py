@@ -99,6 +99,10 @@ class WindowsBackend(AudioBackend):
         print(f"[WINDOWS BACKEND] Initialized with output_format: {self._output_format}")
         logger.debug(f"WindowsBackend initialized with output_format: {self._output_format}")
 
+        # Debug: Print stack trace to see where this backend is being created
+        import traceback
+        logger.debug(f"Backend creation stack trace:\n{''.join(traceback.format_stack())}")
+
     def start(self) -> None:
         """Start WASAPI audio capture."""
         logger.debug(f"Starting WASAPI capture for PID {self._pid}")
