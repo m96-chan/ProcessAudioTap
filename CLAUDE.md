@@ -22,14 +22,35 @@ ProcTap is a cross-platform Python library for capturing audio from specific pro
 
 ## Development Guidelines
 
+### Test File Organization
+
+**IMPORTANT:** Use `.claude_test/` directory for all temporary and experimental test files:
+
+**Required Usage of `.claude_test/`:**
+- All temporary test scripts (for quick testing/debugging)
+- Experimental or throw-away code
+- Test audio files and sample data
+- Any files created for verification purposes
+- Example/demo files used during development
+
+**Do NOT use `.claude_test/` for:**
+- Official test suite files (use `tests/` directory)
+- Production examples (use `examples/` directory)
+- Production code (use `src/` directory)
+
+**Cleanup:**
+- `.claude_test/` is gitignored
+- Clean up files in `.claude_test/` after completing tests
+- Only commit to `tests/`, `examples/`, or `src/` when ready for production
+
 ### Testing Standards
 
-**IMPORTANT:** When creating test code, ALWAYS follow pytest conventions:
+**IMPORTANT:** When creating official test code, ALWAYS follow pytest conventions:
 - Use pytest framework for all tests
 - Place tests in `tests/` directory or name files with `test_*.py` pattern
 - Use pytest fixtures, parametrize, and markers
 - Follow pytest discovery conventions
-- Delete experimental/temporary test scripts after verification
+- Use `.claude_test/` for experimental scripts before moving to `tests/`
 
 ### Setup and Building
 
