@@ -62,15 +62,35 @@ def get_backend(
         )
 
     elif system == "Darwin":  # macOS
-        # Official macOS backend: PyObjC (Phase 3)
-        # Other backends (Swift CLI, C extension) are experimental only
+        # macOS Backend Selection (in order of preference):
+        # 1. ScreenCaptureKit (macOS 13+, bundleID-based, Apple Silicon compatible)
+        # 2. Swift CLI Helper (macOS 14.4+, PID-based, requires AMFI disable on Apple Silicon)
+        # 3. PyObjC (fallback, has IOProc callback issues)
 
+        import logging
+        log = logging.getLogger(__name__)
+
+        # Try ScreenCaptureKit first (RECOMMENDED - macOS 13+, works on Apple Silicon)
         try:
-            from .macos_pyobjc import MacOSNativeBackend, is_available
-            if is_available():
-                import logging
-                logging.getLogger(__name__).info(
-                    "Using PyObjC backend (Official macOS backend - Phase 3)"
+            from .macos_screencapture import ScreenCaptureBackend, is_available as sc_available
+            if sc_available():
+                log.info("Using ScreenCaptureKit backend (Recommended - macOS 13+)")
+                return ScreenCaptureBackend(
+                    pid=pid,
+                    sample_rate=sample_rate,
+                    channels=channels,
+                    sample_width=sample_width,
+                )
+        except ImportError as e:
+            log.debug(f"ScreenCaptureKit backend not available: {e}")
+
+        # Fallback to PyObjC backend (experimental - has callback issues)
+        try:
+            from .macos_pyobjc import MacOSNativeBackend, is_available as pyobjc_available
+            if pyobjc_available():
+                log.warning(
+                    "Using PyObjC backend (Fallback - IOProc callbacks may not work). "
+                    "Consider building ScreenCaptureKit backend for better stability."
                 )
                 return MacOSNativeBackend(
                     pid=pid,
@@ -78,17 +98,19 @@ def get_backend(
                     channels=channels,
                     sample_width=sample_width,
                 )
-            else:
-                raise RuntimeError(
-                    "Core Audio framework not available. "
-                    "macOS 14.4+ (Sonoma) is required for Process Tap API."
-                )
-        except ImportError as e:
-            raise RuntimeError(
-                "macOS backend requires PyObjC. Install with:\n"
-                "  pip install pyobjc-core pyobjc-framework-CoreAudio\n"
-                f"Error: {e}"
-            ) from e
+        except ImportError:
+            log.debug("PyObjC backend not available")
+
+        # No backend available
+        raise RuntimeError(
+            "No macOS backend available.\n"
+            "Option 1 (Recommended): Build ScreenCaptureKit backend:\n"
+            "  cd swift/screencapture-audio && swift build\n"
+            "  Requires: macOS 13+ (Ventura), Screen Recording permission\n"
+            "Option 2 (Fallback): Install PyObjC:\n"
+            "  pip install pyobjc-core pyobjc-framework-CoreAudio\n"
+            "  Requires: macOS 14.4+ (Sonoma)"
+        )
 
     else:
         raise NotImplementedError(

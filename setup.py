@@ -92,28 +92,27 @@ elif platform.system() == "Linux":
     print("NOTE: Per-process isolation has limitations on Linux")
 
 elif platform.system() == "Darwin":  # macOS
-    # macOS: Native C extension + Swift CLI helper fallback
+    # macOS: Native C extension with blocks support
     ext_modules = [
         Extension(
-            "proctap._native_macos",
-            sources=["src/proctap/_native_macos.m"],
-            language="c",
+            "proctap._macos_native",
+            sources=["src/proctap/_macos_native.m"],
             extra_compile_args=[
-                # Note: NOT using -fobjc-arc due to compatibility issues with CoreAudio constants
-                # Manual memory management is required
-                "-ObjC",
-                "-O2",  # Moderate optimization (O3 can cause issues)
+                "-fblocks",    # Enable blocks support (required for AudioDeviceCreateIOProcIDWithBlock)
+                "-O2",
+                "-Wno-deprecated-declarations",  # Suppress warnings about dispatch_release
             ],
             extra_link_args=[
                 "-framework", "CoreAudio",
                 "-framework", "AudioToolbox",
+                "-framework", "CoreFoundation",
                 "-framework", "Foundation",
+                # Note: BlocksRuntime is built-in on macOS, no need to link explicitly
             ],
         )
     ]
     print("Building for macOS with Core Audio Process Tap backend (macOS 14.4+)")
-    print("NOTE: Building native C extension for optimal performance")
-    print("NOTE: Swift CLI helper will be built as fallback if Swift toolchain is available")
+    print("NOTE: Building native C extension with blocks support for IOProc callbacks")
 
 else:
     print(f"WARNING: Platform '{platform.system()}' is not officially supported")

@@ -9,15 +9,17 @@ ProcTap is a cross-platform Python library for capturing audio from specific pro
 **Platform Support:**
 - **Windows**: ✅ Fully implemented using WASAPI Process Loopback (C++ native extension)
 - **Linux**: ✅ Fully implemented - PulseAudio/PipeWire backend with multiple strategies
-- **macOS**: ✅ **Officially supported** - Core Audio Process Tap via PyObjC (macOS 14.4+)
+- **macOS**: ✅ **Officially supported** - ScreenCaptureKit (macOS 13+, bundleID-based)
 
 **Key Characteristics:**
 - Per-process audio isolation (not system-wide)
-- Low-latency streaming (10ms default buffer on Windows)
+  - Windows/Linux: PID-based capture
+  - macOS: bundleID-based capture (ScreenCaptureKit)
+- Low-latency streaming (10-15ms on macOS, 10ms on Windows)
 - Platform-specific implementations:
   - Windows: WASAPI C++ extension (Windows 10 20H1+)
   - Linux: PulseAudio/PipeWire backend (native API + fallback strategies)
-  - **macOS: PyObjC + Core Audio Process Tap API (macOS 14.4+) - OFFICIAL**
+  - **macOS: ScreenCaptureKit Swift helper (macOS 13+) - RECOMMENDED**
 - Dual API: callback-based and async iterator patterns
 
 ## Development Guidelines
@@ -75,12 +77,30 @@ python examples/macos_basic.py --pid 12345 --duration 5 --output output.wav
 
 ### macOS Setup
 
+**Recommended: ScreenCaptureKit Backend (macOS 13+)**
+
 ```bash
-# Install PyObjC dependencies for macOS backend
+# Build Swift helper binary
+cd swift/screencapture-audio
+swift build -c release
+
+# Enable Screen Recording permission
+# System Settings → Privacy & Security → Screen Recording → Enable for Terminal/IDE
+
+# Test
+python examples/macos_screencapture_test.py --bundle-id com.apple.Safari --duration 5
+```
+
+**Fallback: PyObjC Backend (Experimental, macOS 14.4+)**
+
+```bash
+# Install PyObjC dependencies
 pip install pyobjc-core pyobjc-framework-CoreAudio
 
 # Or install with optional dependencies
 pip install -e ".[macos]"
+
+# Note: PyObjC backend has IOProc callback issues and is not recommended
 ```
 
 ## Architecture
@@ -94,21 +114,21 @@ ProcTap (core.py - Public API)
     ↓
 backends/__init__.py (Platform Detection)
     ↓
-┌─────────────────┬──────────────────┬──────────────────────┐
-│ Windows         │ Linux            │ macOS                │
-│ (Implemented)   │ (Implemented)    │ (Implemented)        │
-├─────────────────┼──────────────────┼──────────────────────┤
-│ WindowsBackend  │ LinuxBackend     │ MacOSNativeBackend   │
-│ └─ _native.cpp  │ └─ PulseAudio/   │ └─ PyObjC            │
-│    (WASAPI)     │    PipeWire      │    (Process Tap API) │
-└─────────────────┴──────────────────┴──────────────────────┘
+┌─────────────────┬──────────────────┬──────────────────────────┐
+│ Windows         │ Linux            │ macOS                    │
+│ (Implemented)   │ (Implemented)    │ (Implemented)            │
+├─────────────────┼──────────────────┼──────────────────────────┤
+│ WindowsBackend  │ LinuxBackend     │ ScreenCaptureBackend     │
+│ └─ _native.cpp  │ └─ PulseAudio/   │ └─ Swift CLI Helper      │
+│    (WASAPI)     │    PipeWire      │    (ScreenCaptureKit)    │
+└─────────────────┴──────────────────┴──────────────────────────┘
 ```
 
 **Backend Selection** ([backends/__init__.py](src/proctap/backends/__init__.py)):
 - Automatic platform detection using `platform.system()`
 - Windows: Uses native C++ extension with WASAPI
 - Linux: PulseAudio/PipeWire backend with multiple strategies
-- **macOS: PyObjC + Core Audio Process Tap API (OFFICIAL)**
+- **macOS: ScreenCaptureKit Swift helper (macOS 13+) - RECOMMENDED**
 
 **Windows Backend** ([backends/windows.py](src/proctap/backends/windows.py)):
 - Wraps `_native.cpp` C++ extension
@@ -133,28 +153,29 @@ backends/__init__.py (Platform Detection)
 - Uses `pulsectl` library for stream management
 - Requires: System-dependent (libpipewire-0.3-dev for native, pw-record or parec for subprocess)
 
-**macOS Backend** ([backends/macos_pyobjc.py](src/proctap/backends/macos_pyobjc.py)):
-- ✅ **OFFICIAL** - Core Audio Process Tap API via PyObjC (macOS 14.4+)
-- Direct Python integration with Core Audio framework using ctypes
+**macOS Backend** ([backends/macos_screencapture.py](src/proctap/backends/macos_screencapture.py)):
+- ✅ **RECOMMENDED** - ScreenCaptureKit API (macOS 13+, bundleID-based)
+- Uses Swift CLI helper subprocess for audio capture
 - **Advantages:**
-  - No subprocess overhead
-  - Better error handling (Python exceptions)
-  - Simple deployment (pip install only)
-  - No binary compilation required
+  - Apple Silicon compatible (no AMFI/SIP hacks needed)
+  - Simple TCC permissions (Screen Recording only)
+  - Stable Apple official API
+  - No Developer ID code signing required
+  - Low latency (~10-15ms)
 - **Requirements:**
-  - macOS 14.4 (Sonoma) or later
-  - PyObjC: `pip install pyobjc-core pyobjc-framework-CoreAudio`
-  - Audio capture permission
-  - Target process must be actively playing audio
+  - macOS 13.0 (Ventura) or later
+  - Swift helper binary: `cd swift/screencapture-audio && swift build`
+  - Screen Recording permission (System Settings → Privacy & Security)
 - **Implementation:**
-  - Uses ctypes to load Core Audio framework
-  - Implements Process Tap creation and IOProc callbacks
-  - Queue-based audio buffer management
-  - See [backends/macos_pyobjc.py](src/proctap/backends/macos_pyobjc.py) for implementation
+  - Swift CLI helper (`screencapture-audio`) captures via ScreenCaptureKit
+  - Python backend manages subprocess and PCM streaming
+  - PID → bundleID translation using `lsappinfo`
+  - See [backends/macos_screencapture.py](src/proctap/backends/macos_screencapture.py)
+  - See [swift/screencapture-audio/](swift/screencapture-audio/) for Swift implementation
 
-**Experimental Backends** (NOT RECOMMENDED):
-- Swift CLI helper: [experimental/macos_swift_cli.py](src/proctap/experimental/macos_swift_cli.py) - Has stability issues
-- C extension: [experimental/macos_c_extension.py](src/proctap/experimental/macos_c_extension.py) - Incomplete implementation
+**Experimental/Archived Backends**:
+- PyObjC backend: [backends/macos_pyobjc.py](src/proctap/backends/macos_pyobjc.py) - IOProc callback issues
+- Process Tap investigation: [archive/apple-silicon-investigation-20251120/](archive/apple-silicon-investigation-20251120/) - AMFI limitations on Apple Silicon
 
 ### Threading Model
 

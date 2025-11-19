@@ -1,13 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git mv:*)",
-      "Bash(move:*)",
-      "Bash(python:*)",
-      "Bash(./cuda_env/Scripts/python.exe:*)",
-      "Bash(python3.12 -m mypy:*)",
-      "Bash(python3.12 -m pytest:*)",
-      "Bash(python3.12:*)"
+      "Bash(python3:*)",
+      "Bash(swift build:*)",
+      "Bash(ffprobe:*)"
     ],
     "deny": [],
     "ask": []

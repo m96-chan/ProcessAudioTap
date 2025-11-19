@@ -46,6 +46,15 @@ from .base import AudioBackend
 
 logger = logging.getLogger(__name__)
 
+# Import ctypes-based Core Audio bindings for Aggregate Device creation
+try:
+    from . import macos_coreaudio_ctypes as ca_ctypes
+    CTYPES_AVAILABLE = True
+    logger.debug("ctypes Core Audio bindings loaded")
+except ImportError as e:
+    logger.warning(f"ctypes Core Audio bindings not available: {e}")
+    CTYPES_AVAILABLE = False
+
 # Check if PyObjC is available
 PYOBJC_AVAILABLE = False
 
@@ -63,6 +72,7 @@ try:
         AudioObjectGetPropertyData,
         AudioObjectGetPropertyDataSize,
         AudioHardwareCreateProcessTap,
+        AudioHardwareCreateAggregateDevice,
         AudioDeviceCreateIOProcID,
         AudioDeviceStart,
         AudioDeviceStop,
@@ -244,12 +254,86 @@ class ProcessAudioDiscovery:
 
 def get_default_output_device_uid() -> str:
     """Get the UID of the default system output device."""
-    # TEMPORARY: Use hardcoded UID for built-in speaker
-    # TODO: Properly query kAudioDevicePropertyDeviceUID
-    # For now, "BuiltInSpeakerDevice" works on most Macs
-    uid = "BuiltInSpeakerDevice"
-    logger.debug(f"Using hardcoded output device UID: {uid}")
-    return uid
+    # Use ctypes version if available (Priority 2 fix)
+    if CTYPES_AVAILABLE:
+        success, uid = ca_ctypes.get_default_output_device_uid()
+        if success:
+            return uid
+        else:
+            logger.warning("ctypes version failed, trying PyObjC fallback")
+
+    # Fallback: Try PyObjC (may fail with "converting to a C array")
+    try:
+        # Query default output device ID
+        address = AudioObjectPropertyAddress(
+            mSelector=kAudioHardwarePropertyDefaultSystemOutputDevice,
+            mScope=kAudioObjectPropertyScopeGlobal,
+            mElement=kAudioObjectPropertyElementMain
+        )
+
+        status, data_size, result = AudioObjectGetPropertyData(
+            kAudioObjectSystemObject,
+            address,
+            0,
+            None,
+            4,
+            None
+        )
+
+        if status != 0 or not result:
+            raise RuntimeError(f"Failed to get default output device: status={status}")
+
+        device_id = struct.unpack('I', result)[0]
+        logger.debug(f"Default output device ID: {device_id}")
+
+        # Query device UID
+        uid_address = AudioObjectPropertyAddress(
+            mSelector=kAudioDevicePropertyDeviceUID,
+            mScope=kAudioObjectPropertyScopeGlobal,
+            mElement=kAudioObjectPropertyElementMain
+        )
+
+        # Get UID data size first
+        status, uid_size, _ = AudioObjectGetPropertyData(
+            device_id,
+            uid_address,
+            0,
+            None,
+            0,
+            None
+        )
+
+        if status != 0:
+            raise RuntimeError(f"Failed to get device UID size: status={status}")
+
+        # Get UID string
+        status, _, uid_data = AudioObjectGetPropertyData(
+            device_id,
+            uid_address,
+            0,
+            None,
+            uid_size,
+            None
+        )
+
+        if status != 0 or not uid_data:
+            raise RuntimeError(f"Failed to get device UID: status={status}")
+
+        # Convert CFString to Python string
+        from Foundation import NSString
+        uid_string = NSString.alloc().initWithBytes_length_encoding_(
+            uid_data, len(uid_data), 4  # NSUTF8StringEncoding = 4
+        )
+
+        logger.debug(f"Default output device UID: {uid_string}")
+        return str(uid_string)
+
+    except Exception as e:
+        logger.warning(f"Failed to query default output device, using fallback: {e}")
+        # Fallback to built-in speaker
+        uid = "BuiltInSpeakerDevice"
+        logger.debug(f"Using fallback output device UID: {uid}")
+        return uid
 
 
 class MacOSNativeBackend(AudioBackend):
@@ -307,6 +391,23 @@ class MacOSNativeBackend(AudioBackend):
                 f"macOS {major}.{minor}.{patch} does not support Process Tap API. "
                 "Requires macOS 14.4 (Sonoma) or later."
             )
+
+        # Check and request TCC permissions (with ctypes if available)
+        if CTYPES_AVAILABLE:
+            # This will:
+            # 1. Check if permission is already granted
+            # 2. If not, try to trigger the permission dialog
+            # 3. If still denied, open System Settings for the user
+            if not ca_ctypes.ensure_microphone_permission(
+                auto_request=True,
+                auto_open_settings=True
+            ):
+                logger.error("Microphone permission is required but not granted")
+                raise RuntimeError(
+                    "Microphone permission denied. "
+                    "Please grant permission in System Settings → Privacy & Security → Microphone, "
+                    "then restart this application."
+                )
 
         self._sample_rate = sample_rate
         self._channels = channels
@@ -388,138 +489,83 @@ class MacOSNativeBackend(AudioBackend):
             self._tap_device_id = tap_device_id
             logger.debug(f"Process Tap created with ID: {self._tap_device_id}")
 
-            # Step 3.5: Read tap stream format (CRITICAL - matches AudioCap line 133)
+            # Step 3.5: Read tap stream format (AudioCap line 133)
             # This must be done BEFORE creating aggregate device
-            logger.debug("Reading tap stream format...")
-            tap_format_address = AudioObjectPropertyAddress(
-                mSelector=kAudioTapPropertyFormat,
-                mScope=kAudioObjectPropertyScopeGlobal,
-                mElement=kAudioObjectPropertyElementMain
-            )
-
-            # Read tap format (AudioStreamBasicDescription is 40 bytes)
-            # PyObjC returns tuple: (status, data_size, result_bytes)
-            try:
-                result = AudioObjectGetPropertyData(
-                    self._tap_device_id,
-                    tap_format_address,
-                    0,      # inQualifierDataSize
-                    None,   # inQualifierData
-                    40,     # outDataSize (size of AudioStreamBasicDescription)
-                    None    # outData (None = PyObjC allocates buffer)
-                )
-                logger.debug(f"AudioObjectGetPropertyData result type: {type(result)}, value: {result}")
-
-                if result is None:
-                    logger.warning("AudioObjectGetPropertyData returned None")
-                elif isinstance(result, tuple) and len(result) == 3:
-                    status, data_size, format_data = result
-                    logger.debug(f"Unpacked: status={status}, data_size={data_size}, format_data={format_data}")
-
-                    if status == 0 and format_data:
-                        # Parse AudioStreamBasicDescription
-                        # Format: mSampleRate (Float64), mFormatID (UInt32), mFormatFlags (UInt32),
-                        #         mBytesPerPacket (UInt32), mFramesPerPacket (UInt32),
-                        #         mBytesPerFrame (UInt32), mChannelsPerFrame (UInt32), mBitsPerChannel (UInt32)
-                        if len(format_data) >= 40:
-                            sample_rate, format_id, format_flags, bytes_per_packet, frames_per_packet, \
-                            bytes_per_frame, channels_per_frame, bits_per_channel = struct.unpack('dIIIIIII', format_data[:40])
-
-                            logger.info(
-                                f"✅ Tap stream format: {sample_rate:.0f} Hz, {channels_per_frame} channels, "
-                                f"{bits_per_channel} bits/sample"
-                            )
-                            self._tap_format = {
-                                'sample_rate': sample_rate,
-                                'channels': channels_per_frame,
-                                'bits_per_channel': bits_per_channel
-                            }
-                        else:
-                            logger.warning(f"Tap format data too small: {len(format_data)} bytes")
-                    else:
-                        logger.warning(f"Failed to read tap format: status={status}")
+            # Note: May fail with TCC error but can use default format
+            # Using ctypes version (Priority 1 fix)
+            if CTYPES_AVAILABLE:
+                success, tap_format = ca_ctypes.read_tap_stream_format(self._tap_device_id)
+                if success:
+                    self._tap_format = tap_format
+                    logger.info(f"✓ Tap format: {tap_format.get('sample_rate')} Hz, "
+                               f"{tap_format.get('channels')} channels")
                 else:
-                    logger.warning(f"Unexpected result structure: {result}")
-            except Exception as e:
-                logger.warning(f"Failed to read tap format: {e}")
-
-            # Step 4: Get default output device UID
-            output_uid = get_default_output_device_uid()
-            logger.debug(f"Default output device UID: {output_uid}")
-
-            # Step 5: Create Aggregate Device with Tap
-            aggregate_uid = str(uuid.uuid4())
-
-            # Build aggregate device description (following AudioCap structure)
-            description = {
-                kAudioAggregateDeviceNameKey: f"ProcTap-{self._pid}",
-                kAudioAggregateDeviceUIDKey: aggregate_uid,
-                kAudioAggregateDeviceMainSubDeviceKey: output_uid,
-                kAudioAggregateDeviceIsPrivateKey: True,
-                kAudioAggregateDeviceIsStackedKey: False,
-                kAudioAggregateDeviceTapAutoStartKey: True,  # Critical!
-                kAudioAggregateDeviceSubDeviceListKey: [
-                    {kAudioSubDeviceUIDKey: output_uid}
-                ],
-                kAudioAggregateDeviceTapListKey: [
-                    {
-                        kAudioSubTapDriftCompensationKey: True,
-                        kAudioSubTapUIDKey: tap_uuid
+                    logger.warning("⚠️  Failed to read tap stream format, using default format")
+                    # Use default format - this is acceptable
+                    self._tap_format = {
+                        'sample_rate': float(self._sample_rate),
+                        'channels': self._channels,
+                        'bits_per_channel': self._bits_per_sample,
                     }
-                ]
-            }
-
-            logger.debug(f"Aggregate Device description: {description}")
-            logger.debug("Using AudioHardwareCreateAggregateDevice via ctypes...")
-
-            # Use ctypes to directly call AudioHardwareCreateAggregateDevice
-            # PyObjC's automatic bridging doesn't support this function properly
-            logger.debug("Loading CoreAudio framework via ctypes...")
-            core_audio = ctypes.CDLL('/System/Library/Frameworks/CoreAudio.framework/CoreAudio')
-
-            # Define the AudioHardwareCreateAggregateDevice function signature
-            # OSStatus AudioHardwareCreateAggregateDevice(CFDictionaryRef inDescription, AudioObjectID* outDeviceID)
-            core_audio.AudioHardwareCreateAggregateDevice.argtypes = [
-                ctypes.c_void_p,  # CFDictionaryRef inDescription
-                ctypes.POINTER(ctypes.c_uint32)  # AudioObjectID* outDeviceID
-            ]
-            core_audio.AudioHardwareCreateAggregateDevice.restype = ctypes.c_int32  # OSStatus
-
-            # Convert description to CFDictionary and get its pointer
-            from Foundation import NSDictionary
-            description_cf = NSDictionary.dictionaryWithDictionary_(description)
-
-            # Get the CFDictionary pointer using objc.pyobjc_id
-            dict_ptr = ctypes.c_void_p(objc.pyobjc_id(description_cf))
-
-            # Prepare output buffer
-            aggregate_device_id = ctypes.c_uint32(0)
-
-            logger.debug("Calling AudioHardwareCreateAggregateDevice via ctypes...")
-
-            # Call AudioHardwareCreateAggregateDevice directly
-            status = core_audio.AudioHardwareCreateAggregateDevice(
-                dict_ptr,  # CFDictionaryRef
-                ctypes.byref(aggregate_device_id)  # outDeviceID
-            )
-
-            logger.debug(f"AudioHardwareCreateAggregateDevice returned: status={status}, device_id={aggregate_device_id.value}")
-
-            if status != 0:
-                raise RuntimeError(
-                    f"Failed to create aggregate device: status={status}"
+            else:
+                # Fallback: Try PyObjC (will likely fail with "converting to a C array")
+                logger.debug("Reading tap stream format (PyObjC fallback)...")
+                tap_format_address = AudioObjectPropertyAddress(
+                    mSelector=kAudioTapPropertyFormat,
+                    mScope=kAudioObjectPropertyScopeGlobal,
+                    mElement=kAudioObjectPropertyElementMain
                 )
 
-            aggregate_device_id = aggregate_device_id.value
+                try:
+                    result = AudioObjectGetPropertyData(
+                        self._tap_device_id,
+                        tap_format_address,
+                        0,      # inQualifierDataSize
+                        None,   # inQualifierData
+                        40,     # outDataSize (size of AudioStreamBasicDescription)
+                        None    # outData (None = PyObjC allocates buffer)
+                    )
+                    logger.debug(f"AudioObjectGetPropertyData result type: {type(result)}, value: {result}")
 
-            self._aggregate_device_id = aggregate_device_id
-            logger.debug(f"Aggregate Device created with ID: {self._aggregate_device_id}")
+                    if result is None:
+                        logger.warning("AudioObjectGetPropertyData returned None")
+                    elif isinstance(result, tuple) and len(result) == 3:
+                        status, data_size, format_data = result
+                        logger.debug(f"Unpacked: status={status}, data_size={data_size}, format_data={format_data}")
 
-            # Step 6: Create I/O callback and attach to AGGREGATE device
+                        if status == 0 and format_data:
+                            # Parse AudioStreamBasicDescription
+                            if len(format_data) >= 40:
+                                sample_rate, format_id, format_flags, bytes_per_packet, frames_per_packet, \
+                                bytes_per_frame, channels_per_frame, bits_per_channel = struct.unpack('dIIIIIII', format_data[:40])
+
+                                logger.info(
+                                    f"✅ Tap stream format: {sample_rate:.0f} Hz, {channels_per_frame} channels, "
+                                    f"{bits_per_channel} bits/sample"
+                                )
+                                self._tap_format = {
+                                    'sample_rate': sample_rate,
+                                    'channels': channels_per_frame,
+                                    'bits_per_channel': bits_per_channel
+                                }
+                            else:
+                                logger.warning(f"Tap format data too small: {len(format_data)} bytes")
+                        else:
+                            logger.warning(f"Failed to read tap format: status={status}")
+                    else:
+                        logger.warning(f"Unexpected result structure: {result}")
+                except Exception as e:
+                    logger.warning(f"Failed to read tap format: {e}")
+
+            # Step 4: Create Aggregate Device (following AudioCap architecture)
+            self._aggregate_device_id = self._create_aggregate_device()
+            logger.debug(f"Aggregate device created with ID: {self._aggregate_device_id}")
+
+            # Step 5: Create I/O callback and attach to AGGREGATE device
             self._setup_io_proc()
             logger.debug("IOProc created and attached to aggregate device")
 
-            # Step 7: Start the AGGREGATE device
+            # Step 6: Start the AGGREGATE device
             self._start_device()
             logger.debug("Aggregate device started")
 
@@ -579,6 +625,85 @@ class MacOSNativeBackend(AudioBackend):
         except:
             pass
 
+    def _create_aggregate_device(self) -> int:
+        """
+        Create Aggregate Device with system output device and process tap.
+
+        Following AudioCap architecture:
+        - Main sub-device: Default system output
+        - Tap list: Process tap with TapAutoStart=true
+
+        Returns:
+            Aggregate device ID (AudioDeviceID)
+
+        Raises:
+            RuntimeError: If aggregate device creation fails
+        """
+        if not CTYPES_AVAILABLE:
+            raise RuntimeError("ctypes Core Audio bindings not available")
+
+        # Get default output device UID
+        output_device_uid = get_default_output_device_uid()
+        logger.debug(f"Output device UID: {output_device_uid}")
+
+        # Generate unique UID for aggregate device
+        aggregate_uid = f"proctap-aggregate-{uuid.uuid4()}"
+        aggregate_name = f"ProcTap Aggregate {self._pid}"
+
+        # Build aggregate device description
+        # Reference: AudioCap lines 140-165
+        # Convert PyObjC constant keys (bytes) to strings for ctypes
+        tap_sub_dict = {
+            kAudioSubTapUIDKey.decode('utf-8') if isinstance(kAudioSubTapUIDKey, bytes) else kAudioSubTapUIDKey: self._tap_uuid,
+            kAudioSubTapDriftCompensationKey.decode('utf-8') if isinstance(kAudioSubTapDriftCompensationKey, bytes) else kAudioSubTapDriftCompensationKey: True,
+        }
+
+        output_sub_dict = {
+            kAudioSubDeviceUIDKey.decode('utf-8') if isinstance(kAudioSubDeviceUIDKey, bytes) else kAudioSubDeviceUIDKey: output_device_uid,
+        }
+
+        tap_list = [tap_sub_dict]
+        sub_device_list = [output_sub_dict]
+
+        aggregate_desc = {
+            kAudioAggregateDeviceUIDKey.decode('utf-8') if isinstance(kAudioAggregateDeviceUIDKey, bytes) else kAudioAggregateDeviceUIDKey: aggregate_uid,
+            kAudioAggregateDeviceNameKey.decode('utf-8') if isinstance(kAudioAggregateDeviceNameKey, bytes) else kAudioAggregateDeviceNameKey: aggregate_name,
+            kAudioAggregateDeviceSubDeviceListKey.decode('utf-8') if isinstance(kAudioAggregateDeviceSubDeviceListKey, bytes) else kAudioAggregateDeviceSubDeviceListKey: sub_device_list,
+            kAudioAggregateDeviceMainSubDeviceKey.decode('utf-8') if isinstance(kAudioAggregateDeviceMainSubDeviceKey, bytes) else kAudioAggregateDeviceMainSubDeviceKey: output_device_uid,
+            kAudioAggregateDeviceTapListKey.decode('utf-8') if isinstance(kAudioAggregateDeviceTapListKey, bytes) else kAudioAggregateDeviceTapListKey: tap_list,
+            kAudioAggregateDeviceTapAutoStartKey.decode('utf-8') if isinstance(kAudioAggregateDeviceTapAutoStartKey, bytes) else kAudioAggregateDeviceTapAutoStartKey: True,
+            kAudioAggregateDeviceIsPrivateKey.decode('utf-8') if isinstance(kAudioAggregateDeviceIsPrivateKey, bytes) else kAudioAggregateDeviceIsPrivateKey: True,
+            kAudioAggregateDeviceIsStackedKey.decode('utf-8') if isinstance(kAudioAggregateDeviceIsStackedKey, bytes) else kAudioAggregateDeviceIsStackedKey: False,
+        }
+
+        logger.debug(f"Creating aggregate device: {aggregate_name}")
+        logger.debug(f"  UID: {aggregate_uid}")
+        logger.debug(f"  Output device: {output_device_uid}")
+        logger.debug(f"  Tap UUID: {self._tap_uuid}")
+
+        # Convert Python dict to CFDictionary using ctypes
+        try:
+            cf_dict = ca_ctypes.create_cf_dictionary(aggregate_desc)
+            logger.debug(f"Created CFDictionary: {cf_dict}")
+
+            # Create aggregate device using ctypes binding
+            status, aggregate_device_id = ca_ctypes.AudioHardwareCreateAggregateDevice(cf_dict)
+
+            # Release CFDictionary
+            ca_ctypes.CFRelease(cf_dict)
+
+            if status != 0 or aggregate_device_id == 0:
+                raise RuntimeError(
+                    f"AudioHardwareCreateAggregateDevice failed: status={status}, device_id={aggregate_device_id}"
+                )
+
+            logger.info(f"✅ Aggregate device created: ID={aggregate_device_id}")
+            return int(aggregate_device_id)
+
+        except Exception as e:
+            logger.error(f"Failed to create aggregate device: {e}")
+            raise RuntimeError(f"Aggregate device creation failed: {e}") from e
+
     def _io_proc_callback(
         self,
         device_id,
@@ -629,83 +754,144 @@ class MacOSNativeBackend(AudioBackend):
             return -1  # Error status
 
     def _setup_io_proc(self) -> None:
-        """Create and register IOProc callback for the AGGREGATE device."""
+        """Create and register IOProc callback for the AGGREGATE device.
+
+        Uses AudioDeviceCreateIOProcIDWithBlock to match AudioCap implementation.
+        This is required for Process Tap + Aggregate Device combinations.
+        """
         if self._aggregate_device_id is None:
             raise RuntimeError("Aggregate device not created")
+
+        # Import block-based API
+        from CoreAudio import AudioDeviceCreateIOProcIDWithBlock
 
         # Create a closure that captures the audio queue
         audio_queue = self._audio_queue
 
-        # Define the callback with explicit PyObjC type signature
-        @objc.callbackFor(AudioDeviceCreateIOProcID)
-        def io_proc_callback(device_id, now, input_data, input_time, output_data, output_time, client_data):
-            """IOProc callback for Core Audio."""
+        # Debug counter for callback invocations
+        callback_count = [0]  # Use list to allow modification in closure
+        last_log_time = [0.0]
+
+        # Define the IOBlock callback (block-based, not function pointer)
+        # Signature: void (^AudioDeviceIOBlock)(const AudioTimeStamp* inNow,
+        #                      const AudioBufferList* inInputData,
+        #                      const AudioTimeStamp* inInputTime,
+        #                      AudioBufferList* outOutputData,
+        #                      const AudioTimeStamp* inOutputTime)
+        def io_block(now, input_data, input_time, output_data, output_time):
+            """IOProc block callback for Core Audio (block-based API)."""
             try:
+                callback_count[0] += 1
+
+                # Log first few callbacks and then periodically
+                import time
+                current_time = time.time()
+                if callback_count[0] <= 5 or (current_time - last_log_time[0]) > 1.0:
+                    logger.info(f"🎵 IOProc block callback #{callback_count[0]} called!")
+                    last_log_time[0] = current_time
+
                 if input_data is None:
-                    return 0
+                    logger.debug(f"  input_data is None")
+                    return
 
                 num_buffers = input_data.mNumberBuffers
+                logger.debug(f"  num_buffers={num_buffers}")
                 if num_buffers == 0:
-                    return 0
+                    return
 
                 buffer = input_data.mBuffers[0]
                 if buffer.mData is None or buffer.mDataByteSize == 0:
-                    return 0
+                    logger.debug(f"  buffer.mData={buffer.mData}, mDataByteSize={buffer.mDataByteSize}")
+                    return
 
                 # Extract audio data as bytes
                 audio_data = bytes(buffer.mData[:buffer.mDataByteSize])
+                logger.debug(f"  Captured {len(audio_data)} bytes")
 
                 # Put into queue (non-blocking)
                 try:
                     audio_queue.put_nowait(audio_data)
                 except queue.Full:
+                    logger.warning("  Queue full, dropping chunk")
                     pass  # Drop if queue is full
 
-                return 0
             except Exception as e:
-                logger.error(f"IOProc error: {e}")
-                return -1
+                logger.error(f"IOProc block error: {e}")
+                import traceback
+                traceback.print_exc()
 
         # Keep reference to prevent GC
-        self._io_callback = io_proc_callback
+        self._io_callback = io_block
 
-        # Create IOProcID - PyObjC handles the callback conversion
+        # Create IOProcID using block-based API (like AudioCap does)
         # IMPORTANT: Attach to AGGREGATE device, NOT tap device!
-        status, io_proc_id = AudioDeviceCreateIOProcID(
+        # Parameters: (out IOProcID*, deviceID, dispatchQueue, block)
+        # AudioCap uses a dispatch queue - let's create one like they do
+
+        # Create dispatch queue for IOProc (like AudioCap line 170)
+        try:
+            from Foundation import NSObject
+            import objc
+
+            # Use the main dispatch queue (equivalent to DispatchQueue.main in Swift)
+            # Get dispatch_get_main_queue via objc runtime
+            libdispatch = objc.loadBundle(
+                'dispatch',
+                globals(),
+                bundle_path='/usr/lib/system/libdispatch.dylib'
+            )
+
+            # Get the main queue - this is a global queue
+            dispatch_queue = objc.lookUpClass('OS_dispatch_queue_main').alloc()
+            logger.info(f"Created dispatch queue: {dispatch_queue}")
+        except Exception as e:
+            logger.warning(f"Failed to create dispatch queue: {e}, using None")
+            dispatch_queue = None
+
+        status, io_proc_id = AudioDeviceCreateIOProcIDWithBlock(
+            None,  # output parameter for IOProcID
             self._aggregate_device_id,  # Use aggregate device!
-            self._io_callback,
-            None,  # client_data
-            None   # output parameter for IOProcID
+            dispatch_queue,  # dispatch queue
+            self._io_callback  # block callback
         )
 
         if status != 0:
             raise RuntimeError(
-                f"AudioDeviceCreateIOProcID failed with status {status}"
+                f"AudioDeviceCreateIOProcIDWithBlock failed with status {status}"
             )
 
         self._io_proc_id = io_proc_id
-        logger.debug(f"IOProcID created: {self._io_proc_id}")
+        logger.info(f"✓ IOProcID created with block-based API: {self._io_proc_id}")
 
     def _start_device(self) -> None:
         """Start the AGGREGATE device to begin receiving callbacks."""
         if self._aggregate_device_id is None or self._io_proc_id is None:
             raise RuntimeError("Device or IOProc not initialized")
 
-        # Start AGGREGATE device, NOT tap device!
-        status = AudioDeviceStart(self._aggregate_device_id, self._io_proc_id)
+        logger.info(f"🚀 Starting aggregate device {self._aggregate_device_id} with IOProc {self._io_proc_id}")
+
+        # Start AGGREGATE device using ctypes version
+        if CTYPES_AVAILABLE:
+            status = ca_ctypes.AudioDeviceStart(self._aggregate_device_id, self._io_proc_id)
+        else:
+            # Fallback to PyObjC (may fail with pointer issues)
+            status = AudioDeviceStart(self._aggregate_device_id, self._io_proc_id)
 
         if status != 0:
             raise RuntimeError(
                 f"AudioDeviceStart failed with status {status}"
             )
 
+        logger.info(f"✓ AudioDeviceStart succeeded (status={status})")
+        logger.info(f"📡 Waiting for IOProc callbacks...")
+
     def _cleanup(self) -> None:
         """Clean up Core Audio resources."""
         try:
-            # Stop aggregate device if running
-            if self._aggregate_device_id and self._io_proc_id:
+            # Stop aggregate device if running (use ctypes version)
+            if self._aggregate_device_id and self._io_proc_id and CTYPES_AVAILABLE:
                 try:
-                    AudioDeviceStop(self._aggregate_device_id, self._io_proc_id)
+                    ca_ctypes.AudioDeviceStop(self._aggregate_device_id, self._io_proc_id)
                 except Exception as e:
                     logger.error(f"Error stopping aggregate device: {e}")
 
@@ -716,10 +902,10 @@ class MacOSNativeBackend(AudioBackend):
                 except Exception as e:
                     logger.error(f"Error destroying IOProc: {e}")
 
-            # Destroy aggregate device
-            if self._aggregate_device_id:
+            # Destroy aggregate device (use ctypes version)
+            if self._aggregate_device_id and CTYPES_AVAILABLE:
                 try:
-                    AudioHardwareDestroyAggregateDevice(self._aggregate_device_id)
+                    ca_ctypes.AudioHardwareDestroyAggregateDevice(self._aggregate_device_id)
                 except Exception as e:
                     logger.error(f"Error destroying aggregate device: {e}")
 
