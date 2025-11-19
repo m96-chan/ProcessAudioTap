@@ -198,7 +198,7 @@ class ScreenCaptureBackend(AudioBackend):
             log.error(f"Error getting bundleID for PID {pid}: {e}")
             return None
 
-    def get_format(self) -> dict[str, int]:
+    def get_format(self) -> dict[str, object]:
         """
         Get audio format information.
 
@@ -267,6 +267,12 @@ class ScreenCaptureBackend(AudioBackend):
         # Store callback (without frame_count for now)
         if on_data:
             self._callback = lambda data: on_data(data, len(data) // (self.channels * self.sample_width))
+
+        # Verify bundle_id and binary_path are available
+        if not self.bundle_id:
+            raise RuntimeError("Bundle ID not set")
+        if not self.binary_path:
+            raise RuntimeError("Binary path not set")
 
         # Build command
         cmd = [

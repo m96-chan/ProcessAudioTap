@@ -11,7 +11,8 @@
       "Bash(python3.12 -m pytest:*)",
       "Bash(mypy:*)",
       "Bash(swift build:*)",
-      "Bash(ffprobe:*)"
+      "Bash(ffprobe:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []
