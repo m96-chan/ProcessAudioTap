@@ -26,10 +26,10 @@ Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
 | Platform | Status | Backend | Notes |
 |----------|--------|---------|-------|
 | **Windows** | ✅ **Fully Supported** | WASAPI (C++ native) | Windows 10/11 (20H1+) |
-| **Linux** | ✅ **Fully Supported** | PipeWire Native / PulseAudio | Per-process isolation, auto-fallback (v0.4.0+) |
+| **Linux** | ✅ **Fully Supported** | PipeWire Native / PulseAudio | Per-process isolation, auto-fallback (v0.3.0+) |
 | **macOS** | 🧪 **Experimental** | Core Audio Process Tap | macOS 14.4+ (Sonoma) required |
 
-<sub>\* Linux is fully supported with PipeWire/PulseAudio (v0.4.0+). macOS support is experimental (see requirements).</sub>
+<sub>\* Linux is fully supported with PipeWire/PulseAudio (v0.3.0+). macOS support is experimental (see requirements).</sub>
 
 </div>
 
@@ -41,11 +41,11 @@ Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
   (VRChat, games, browsers, Discord, DAWs, streaming tools, etc.)
 
 - 🌍 **Cross-platform architecture**
-  → Windows (fully supported) | Linux (fully supported, v0.4.0+) | macOS (experimental, 14.4+)
+  → Windows (fully supported) | Linux (fully supported, v0.3.0+) | macOS (experimental, 14.4+)
 
 - ⚡ **Platform-optimized backends**
   → Windows: ActivateAudioInterfaceAsync (modern WASAPI)
-  → Linux: PipeWire Native API / PulseAudio (fully supported, v0.4.0+)
+  → Linux: PipeWire Native API / PulseAudio (fully supported, v0.3.0+)
   → macOS: Core Audio Process Tap API (macOS 14.4+)
 
 - 🧵 **Low-latency, thread-safe audio engine**
@@ -113,6 +113,58 @@ pip install -e .
 
 ---
 
+## 🎬 CLI Usage (Pipe to FFmpeg)
+
+ProcTap includes a CLI for piping audio directly to FFmpeg or other tools:
+
+```bash
+# Pipe to FFmpeg (MP3 encoding) - Direct command
+proctap --pid 12345 --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0 output.mp3
+
+# Or using python -m
+python -m proctap --pid 12345 --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0 output.mp3
+
+# Using process name instead of PID
+proctap --name "VRChat.exe" --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0 output.mp3
+
+# FLAC encoding (lossless)
+proctap --pid 12345 --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0 output.flac
+
+# Custom sample rate and mono output
+proctap --pid 12345 --sample-rate 44100 --channels 1 --stdout | ffmpeg -f s16le -ar 44100 -ac 1 -i pipe:0 output.wav
+```
+
+**CLI Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--pid PID` | Process ID to capture (required if `--name` not used) |
+| `--name NAME` | Process name to capture (e.g., `VRChat.exe` or `VRChat`) |
+| `--stdout` | Output raw PCM to stdout for piping (required) |
+| `--sample-rate RATE` | Sample rate in Hz (default: 48000) |
+| `--channels {1,2}` | Number of channels: 1=mono, 2=stereo (default: 2) |
+| `--verbose` | Enable verbose logging to stderr |
+
+**Finding Process IDs:**
+
+```bash
+# Windows
+tasklist | findstr "VRChat"
+
+# Linux/macOS
+ps aux | grep VRChat
+```
+
+**FFmpeg Format Arguments:**
+
+The CLI outputs raw PCM in s16le (signed 16-bit little-endian) format by default, but can be customized via `--sample-rate` and `--channels` options. FFmpeg needs these arguments:
+- `-f s16le`: PCM format
+- `-ar RATE`: Sample rate (must match `--sample-rate`, default 48000)
+- `-ac CHANNELS`: Number of channels (must match `--channels`, default 2)
+- `-i pipe:0`: Read from stdin
+
+---
+
 ## 🛠 Requirements
 
 **Windows (Fully Supported):**
@@ -121,14 +173,14 @@ pip install -e .
 - WASAPI support
 - **No admin privileges required**
 
-**Linux (Fully Supported - v0.4.0+):**
+**Linux (Fully Supported - v0.3.0+):**
 - Linux with PulseAudio or PipeWire
 - Python 3.10+
 - **Auto-detection:** Automatically selects best available backend
-- **Native PipeWire API** (recommended):
+- **Native PipeWire API** (in development, experimental):
   - `libpipewire-0.3-dev`: `sudo apt-get install libpipewire-0.3-dev`
-  - Ultra-low latency: ~2-5ms
-  - Auto-selected when available
+  - Target latency: ~2-5ms (when fully implemented)
+  - Auto-selected when available (may fall back to subprocess)
 - **PipeWire subprocess:**
   - `pw-record`: install with `sudo apt-get install pipewire-media-session`
 - **PulseAudio fallback:**

@@ -115,7 +115,7 @@ def get_backend(
     else:
         raise NotImplementedError(
             f"Platform '{system}' is not supported. "
-            "Supported platforms: Windows, Linux (in development), macOS (planned)"
+            "Supported platforms: Windows (stable), Linux (stable), macOS (experimental)"
         )
 
 

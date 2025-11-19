@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proc-tap"
-version = "0.3.0"
+version = "0.3.1"
 description = "Cross-platform process-level audio capture library"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -46,6 +46,9 @@ dependencies = [
 Homepage = "https://github.com/m96-chan/ProcTap"
 Repository = "https://github.com/m96-chan/ProcTap"
 Issues = "https://github.com/m96-chan/ProcTap/issues"
+
+[project.scripts]
+proctap = "proctap.__main__:main"
 
 [project.optional-dependencies]
 dev = [

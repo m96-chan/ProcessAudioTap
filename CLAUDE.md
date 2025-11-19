@@ -8,17 +8,17 @@ ProcTap is a cross-platform Python library for capturing audio from specific pro
 
 **Platform Support:**
 - **Windows**: ✅ Fully implemented using WASAPI Process Loopback (C++ native extension)
-- **Linux**: ✅ Fully implemented - PulseAudio/PipeWire backend with multiple strategies
+- **Linux**: ✅ Fully implemented - PipeWire Native/PulseAudio (per-process isolation, v0.3.0+)
 - **macOS**: ✅ **Officially supported** - ScreenCaptureKit (macOS 13+, bundleID-based)
 
 **Key Characteristics:**
 - Per-process audio isolation (not system-wide)
   - Windows/Linux: PID-based capture
   - macOS: bundleID-based capture (ScreenCaptureKit)
-- Low-latency streaming (10-15ms on macOS, 10ms on Windows)
+- Low-latency streaming (10-15ms on macOS, 10ms on Windows, 2-5ms on Linux with PipeWire Native)
 - Platform-specific implementations:
   - Windows: WASAPI C++ extension (Windows 10 20H1+)
-  - Linux: PulseAudio/PipeWire backend (native API + fallback strategies)
+  - Linux: PipeWire Native API / PulseAudio (fully supported, v0.3.0+)
   - **macOS: ScreenCaptureKit Swift helper (macOS 13+) - RECOMMENDED**
 - Dual API: callback-based and async iterator patterns
 
@@ -73,6 +73,24 @@ python examples/linux_basic.py --pid 12345 --duration 5 --output output.wav
 
 # macOS example (requires macOS 14.4+, PyObjC)
 python examples/macos_basic.py --pid 12345 --duration 5 --output output.wav
+```
+
+### CLI Usage (Pipe to FFmpeg)
+
+The package installs a `proctap` command for direct use:
+
+```bash
+# Direct command (recommended)
+proctap --pid 12345 --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0 output.mp3
+
+# Or using python -m (alternative)
+python -m proctap --pid 12345 --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0 output.mp3
+
+# Using process name instead of PID
+proctap --name "VRChat.exe" --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0 output.mp3
+
+# Custom sample rate and mono output
+proctap --pid 12345 --sample-rate 44100 --channels 1 --stdout | ffmpeg -f s16le -ar 44100 -ac 1 -i pipe:0 output.wav
 ```
 
 ### macOS Setup
@@ -145,7 +163,8 @@ backends/__init__.py (Platform Detection)
 **Linux Backend** ([backends/linux.py](src/proctap/backends/linux.py)):
 - ✅ Fully implemented with multiple strategies (v0.3.0+)
 - **PipeWire Native API** ([backends/pipewire_native.py](src/proctap/backends/pipewire_native.py)):
-  - Ultra-low latency: ~2-5ms (vs ~10-20ms subprocess-based)
+  - 🚧 In development: Core functionality implemented, integration ongoing
+  - Target latency: ~2-5ms (vs ~10-20ms subprocess-based)
   - Direct C API bindings via ctypes
   - Auto-selected when available
 - **Strategy Pattern:** PipeWire Native → PipeWire subprocess (`pw-record`) → PulseAudio (`parec`)
@@ -208,7 +227,8 @@ Audio Source (Process-specific)
 **[backends/](src/proctap/backends/)** - Platform-specific implementations:
 - `base.py`: `AudioBackend` abstract base class
 - `windows.py`: Windows implementation (wraps `_native.cpp` + format conversion)
-- `linux.py`: Linux PulseAudio implementation (experimental)
+- `linux.py`: Linux PipeWire/PulseAudio implementation (fully supported, v0.3.0+)
+- `pipewire_native.py`: Native PipeWire API bindings (in development)
 - `macos.py`: macOS Core Audio Process Tap implementation (experimental)
 - `converter.py`: Audio format converter (sample rate, channels, bit depth)
 
@@ -239,8 +259,11 @@ The build system ([setup.py](setup.py)) automatically detects the platform and b
 
 **Linux Builds:**
 - No C++ extension required (pure Python)
-- PulseAudio backend uses `pulsectl` library and `parec` command
-- System dependencies: `pulseaudio-utils` package
+- Multiple backend strategies:
+  - PipeWire Native: `libpipewire-0.3-dev` (optional, for ultra-low latency)
+  - PipeWire subprocess: `pw-record` from `pipewire-utils`
+  - PulseAudio: `parec` from `pulseaudio-utils`
+- Python dependencies: `pulsectl` library (automatically installed)
 
 **macOS Builds:**
 - Pure Python backend using PyObjC (no compilation needed)
@@ -264,7 +287,10 @@ The build system ([setup.py](setup.py)) automatically detects the platform and b
 - **macOS**: `pyobjc-core>=9.0`, `pyobjc-framework-CoreAudio>=9.0` (automatically installed via environment markers in pyproject.toml)
 
 **System Dependencies (Linux only):**
-- `parec` command from `pulseaudio-utils` package
+- One of the following (auto-detected with graceful fallback):
+  - **PipeWire Native** (recommended): `libpipewire-0.3-dev`
+  - **PipeWire subprocess**: `pw-record` from `pipewire-utils`
+  - **PulseAudio**: `parec` from `pulseaudio-utils`
 - PulseAudio or PipeWire with pulseaudio-compat
 
 **Examples:**
@@ -357,13 +383,14 @@ Raw PCM data is returned as `bytes` to user callbacks/iterators.
 
 **Linux Backend:**
 1. **Native PipeWire API Implementation** ([backends/pipewire_native.py](src/proctap/backends/pipewire_native.py)):
-   - ✅ COMPLETED (v0.4.0+):
-     * SPA POD format parameters
-     * Registry API for node discovery
-     * Comprehensive error handling
-     * Thread management
-     * Integration with LinuxBackend
-   - ✅ Testing: Unit tests and examples added
+   - 🚧 IN DEVELOPMENT (v0.3.0+):
+     * ✅ Core API bindings (pw_init, pw_main_loop, pw_context, pw_stream)
+     * ✅ Stream capture framework (pw_stream_new_simple, dequeue/queue buffers)
+     * ✅ Registry API for node discovery
+     * ✅ Basic thread management
+     * ⚠️  Incomplete: SPA POD format parameters optimization
+     * ⚠️  Integration with LinuxBackend: Experimental, may fall back to subprocess
+   - ✅ Testing: Basic unit tests and examples added
 
 2. **Cross-distribution Testing** (Ongoing):
    - Verify on Ubuntu, Fedora, Arch Linux, Debian
