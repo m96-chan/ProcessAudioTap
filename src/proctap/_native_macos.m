@@ -17,9 +17,15 @@
 #import <CoreAudio/CoreAudio.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <objc/runtime.h>
+#import <CoreGraphics/CoreGraphics.h>
+#import <IOSurface/IOSurface.h>
+#import <CoreVideo/CoreVideo.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <dlfcn.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <string.h>
 
 // Forward declarations for macOS 14.4+ APIs (not in public headers)
 // These are available at runtime on macOS 14.4+
@@ -205,6 +211,247 @@ static size_t ring_buffer_read(RingBuffer* rb, uint8_t* data, size_t len) {
 }
 
 // ============================================================================
+// Screen Recording Permission Helper
+// ============================================================================
+
+static PyObject* request_screen_recording_permission(PyObject* self, PyObject* args) {
+    (void)self;
+    (void)args;
+    @autoreleasepool {
+        CFDictionaryRef empty_dict = CFDictionaryCreate(
+            kCFAllocatorDefault,
+            NULL,
+            NULL,
+            0,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks
+        );
+
+        CGDisplayStreamRef stream = CGDisplayStreamCreate(
+            kCGDirectMainDisplay,
+            1,
+            1,
+            kCVPixelFormatType_32BGRA,
+            empty_dict,
+            ^(CGDisplayStreamFrameStatus status,
+              uint64_t time,
+              IOSurfaceRef frame,
+              CGDisplayStreamUpdateRef update) {
+                (void)status;
+                (void)time;
+                (void)frame;
+                (void)update;
+            }
+        );
+
+        if (empty_dict) {
+            CFRelease(empty_dict);
+        }
+
+        if (stream == NULL) {
+            NSLog(@"[TCC] CGDisplayStreamCreate failed; Screen Recording permission likely denied.");
+            Py_RETURN_FALSE;
+        }
+
+        CFRelease(stream);
+        Py_RETURN_TRUE;
+    }
+}
+
+// ============================================================================
+// Stream Format / Aggregate Device Helpers
+// ============================================================================
+
+static void ensure_default_stream_format(ProcessTapState* state) {
+    if (!state) {
+        return;
+    }
+
+    AudioStreamBasicDescription* fmt = &state->format;
+    UInt32 fallback_channels = state->channels > 0 ? state->channels : 2;
+    UInt32 fallback_bits = state->bits_per_sample > 0 ? state->bits_per_sample : 16;
+    Float64 fallback_rate = (state->sample_rate > 0) ? (Float64)state->sample_rate : 48000.0;
+    UInt32 bytes_per_sample = fallback_bits / 8;
+    if (bytes_per_sample == 0) {
+        bytes_per_sample = 2;
+    }
+
+    if (fmt->mSampleRate == 0.0) {
+        fmt->mSampleRate = fallback_rate;
+    }
+    if (fmt->mFormatID == 0) {
+        fmt->mFormatID = kAudioFormatLinearPCM;
+    }
+    if (fmt->mFormatFlags == 0) {
+        fmt->mFormatFlags = kAudioFormatFlagIsPacked | kAudioFormatFlagIsSignedInteger;
+    }
+    if (fmt->mChannelsPerFrame == 0) {
+        fmt->mChannelsPerFrame = fallback_channels;
+    }
+    if (fmt->mBitsPerChannel == 0) {
+        fmt->mBitsPerChannel = fallback_bits;
+    }
+    if (fmt->mFramesPerPacket == 0) {
+        fmt->mFramesPerPacket = 1;
+    }
+    if (fmt->mBytesPerFrame == 0) {
+        fmt->mBytesPerFrame = fmt->mChannelsPerFrame * bytes_per_sample;
+    }
+    if (fmt->mBytesPerPacket == 0) {
+        fmt->mBytesPerPacket = fmt->mBytesPerFrame * fmt->mFramesPerPacket;
+    }
+}
+
+static void log_stream_format(const char* prefix, const AudioStreamBasicDescription* fmt) {
+    if (!fmt) {
+        return;
+    }
+
+    NSString* prefix_str = prefix ? [NSString stringWithUTF8String:prefix] : @"[DEBUG] Format";
+    NSLog(@"%@ %.0f Hz, %u ch, formatID=0x%08X, flags=0x%08X, bits=%u, bytes/frame=%u",
+          prefix_str,
+          fmt->mSampleRate,
+          (unsigned int)fmt->mChannelsPerFrame,
+          (unsigned int)fmt->mFormatID,
+          (unsigned int)fmt->mFormatFlags,
+          (unsigned int)fmt->mBitsPerChannel,
+          (unsigned int)fmt->mBytesPerFrame);
+}
+
+static OSStatus configure_aggregate_device(ProcessTapState* state) {
+    if (!state || state->device_id == 0) {
+        return kAudioHardwareUnspecifiedError;
+    }
+
+    ensure_default_stream_format(state);
+    log_stream_format("[DEBUG] configure_aggregate_device: Desired stream format",
+                      &state->format);
+
+    AudioObjectPropertyAddress fmt_addr = {
+        .mSelector = kAudioDevicePropertyStreamFormat,
+        .mScope = kAudioDevicePropertyScopeInput,
+        .mElement = kAudioObjectPropertyElementMain
+    };
+
+    UInt32 fmt_size = sizeof(state->format);
+    OSStatus status = AudioObjectSetPropertyData(
+        state->device_id,
+        &fmt_addr,
+        0,
+        NULL,
+        fmt_size,
+        &state->format
+    );
+
+    if (status != noErr) {
+        NSLog(@"[ERROR] Failed to set aggregate device stream format (status=%d)", status);
+        return status;
+    }
+
+    AudioStreamBasicDescription confirmed_format = {0};
+    UInt32 confirmed_size = sizeof(confirmed_format);
+    status = AudioObjectGetPropertyData(
+        state->device_id,
+        &fmt_addr,
+        0,
+        NULL,
+        &confirmed_size,
+        &confirmed_format
+    );
+
+    if (status == noErr) {
+        log_stream_format("[DEBUG] configure_aggregate_device: Confirmed stream format",
+                          &confirmed_format);
+    } else {
+        NSLog(@"[WARN] Could not read back stream format (status=%d)", status);
+    }
+
+    UInt32 channels = state->format.mChannelsPerFrame > 0
+        ? state->format.mChannelsPerFrame
+        : state->channels;
+    if (channels == 0) {
+        channels = 2;
+    }
+
+    AudioObjectPropertyAddress stream_config_addr = {
+        .mSelector = kAudioDevicePropertyStreamConfiguration,
+        .mScope = kAudioDevicePropertyScopeInput,
+        .mElement = kAudioObjectPropertyElementMain
+    };
+
+    UInt32 buffer_list_size = (UInt32)(offsetof(AudioBufferList, mBuffers) + sizeof(AudioBuffer));
+    AudioBufferList* buffer_list = (AudioBufferList*)malloc(buffer_list_size);
+    if (!buffer_list) {
+        return kAudioHardwareUnspecifiedError;
+    }
+
+    memset(buffer_list, 0, buffer_list_size);
+    buffer_list->mNumberBuffers = 1;
+    buffer_list->mBuffers[0].mNumberChannels = channels;
+    buffer_list->mBuffers[0].mDataByteSize = 0;
+    buffer_list->mBuffers[0].mData = NULL;
+
+    status = AudioObjectSetPropertyData(
+        state->device_id,
+        &stream_config_addr,
+        0,
+        NULL,
+        buffer_list_size,
+        buffer_list
+    );
+
+    free(buffer_list);
+
+    if (status != noErr) {
+        NSLog(@"[ERROR] Failed to set stream configuration (status=%d)", status);
+        return status;
+    }
+
+    // Read back stream config for diagnostics
+    UInt32 readback_size = 0;
+    status = AudioObjectGetPropertyDataSize(
+        state->device_id,
+        &stream_config_addr,
+        0,
+        NULL,
+        &readback_size
+    );
+
+    if (status == noErr && readback_size >= sizeof(AudioBufferList)) {
+        AudioBufferList* readback = (AudioBufferList*)malloc(readback_size);
+        if (readback) {
+            memset(readback, 0, readback_size);
+            status = AudioObjectGetPropertyData(
+                state->device_id,
+                &stream_config_addr,
+                0,
+                NULL,
+                &readback_size,
+                readback
+            );
+
+            if (status == noErr) {
+                UInt32 configured_channels = 0;
+                if (readback->mNumberBuffers > 0) {
+                    configured_channels = readback->mBuffers[0].mNumberChannels;
+                }
+                NSLog(@"[DEBUG] configure_aggregate_device: Stream configuration set (buffers=%u, channels=%u)",
+                      (unsigned int)readback->mNumberBuffers,
+                      (unsigned int)configured_channels);
+            } else {
+                NSLog(@"[WARN] Failed to read back stream configuration (status=%d)", status);
+            }
+
+            free(readback);
+        }
+    } else {
+        NSLog(@"[WARN] Could not query stream configuration size (status=%d)", status);
+    }
+
+    return noErr;
+}
+
+// ============================================================================
 // Core Audio Helpers
 // ============================================================================
 
@@ -290,39 +537,30 @@ static OSStatus io_proc_callback(
 ) {
     ProcessTapState* state = (ProcessTapState*)inClientData;
 
-    static int call_count = 0;
-    if (call_count < 5) {
-        NSLog(@"[DEBUG] IOProc callback called (count: %d)", ++call_count);
+    static uint64_t call_count = 0;
+    if ((call_count++ % 100) == 0) {
+        UInt32 inBuffers = inInputData ? inInputData->mNumberBuffers : 0;
+        UInt32 outBuffers = outOutputData ? outOutputData->mNumberBuffers : 0;
+        UInt32 inBytes = 0;
+        if (inInputData && inBuffers > 0) {
+            inBytes = inInputData->mBuffers[0].mDataByteSize;
+        }
+        NSLog(@"[IOPROC] called #%llu: inBuffers=%u inBytes=%u outBuffers=%u",
+              call_count, (unsigned int)inBuffers, (unsigned int)inBytes, (unsigned int)outBuffers);
     }
 
     if (!state || !atomic_load(&state->is_running)) {
-        NSLog(@"[DEBUG] IOProc: state invalid or not running");
         return noErr;
     }
 
     if (inInputData && inInputData->mNumberBuffers > 0) {
         const AudioBuffer* buffer = &inInputData->mBuffers[0];
-
-        if (call_count <= 5) {
-            NSLog(@"[DEBUG] IOProc: mNumberBuffers=%u, mDataByteSize=%u",
-                  inInputData->mNumberBuffers, buffer->mDataByteSize);
-        }
-
         if (buffer->mData && buffer->mDataByteSize > 0) {
-            // Write to ring buffer
-            size_t written = ring_buffer_write(
+            ring_buffer_write(
                 state->ring_buffer,
                 (const uint8_t*)buffer->mData,
                 buffer->mDataByteSize
             );
-
-            if (call_count <= 5) {
-                NSLog(@"[DEBUG] IOProc: Wrote %zu bytes to ring buffer", written);
-            }
-        }
-    } else {
-        if (call_count <= 5) {
-            NSLog(@"[DEBUG] IOProc: No input data or buffers");
         }
     }
 
@@ -414,7 +652,10 @@ static OSStatus create_process_tap(ProcessTapState* state) {
 
         if (status != noErr) {
             snprintf(state->error_message, sizeof(state->error_message),
-                    "AudioHardwareCreateProcessTap failed: %d", status);
+                    "AudioHardwareCreateProcessTap failed: %d. Screen Recording permission "
+                    "is required. Enable it via  > System Settings > Privacy & Security > "
+                    "Screen Recording, then restart the app. 過去に拒否した場合は手動で許可し、アプリを再起動してください。",
+                    status);
             return status;
         }
 
@@ -441,102 +682,139 @@ static OSStatus create_process_tap(ProcessTapState* state) {
                   tap_format.mSampleRate, tap_format.mChannelsPerFrame, tap_format.mBitsPerChannel);
             // Store format in state for later use
             state->format = tap_format;
+            ensure_default_stream_format(state);
         }
 
-        // Re-enable aggregate device creation with fixed memory management
-        NSLog(@"[DEBUG] create_process_tap: Creating aggregate device...");
-        // Generate a UUID for referencing the tap in aggregate device
-        NSLog(@"[DEBUG] create_process_tap: Generating UUIDs...");
-        CFUUIDRef tap_uuid = CFUUIDCreate(NULL);
-        CFStringRef tap_uuid_str = CFUUIDCreateString(NULL, tap_uuid);
-        CFRelease(tap_uuid);
+        // === AGGREGATE DEVICE CREATION (FIXED - String Literal Keys) ===
+        NSLog(@"[DEBUG] Step 1: Generating UUIDs");
 
-        // CRITICAL FIX: Use copy to safely retain the string
-        // __bridge without retain, then copy to get a retained copy
-        NSString* tap_uuid_str_ns = [(__bridge NSString*)tap_uuid_str copy];
+        CFUUIDRef agg_uuid = CFUUIDCreate(NULL);
+        CFStringRef agg_uuid_str = CFUUIDCreateString(NULL, agg_uuid);
+        CFRelease(agg_uuid);
 
-        // Get default output device UID
+        NSLog(@"[DEBUG] Step 2: Getting default output device UID");
         CFStringRef device_uid = get_default_output_device_uid();
         if (!device_uid) {
             snprintf(state->error_message, sizeof(state->error_message),
                     "Failed to get default output device");
-            CFRelease(tap_uuid_str);  // Clean up on error
+            CFRelease(agg_uuid_str);
             return kAudioHardwareUnspecifiedError;
         }
+        NSLog(@"[DEBUG] Device UID: %@", device_uid);
 
-        // CRITICAL FIX: Use copy for device_uid as well
-        NSString* device_uid_str = [(__bridge NSString*)device_uid copy];
+        // Create string literal keys (DO NOT use kAudio* constants!)
+        NSLog(@"[DEBUG] Step 3: Creating CFString keys from literals");
+        CFStringRef key_name = CFSTR("name");
+        CFStringRef key_uid = CFSTR("uid");
+        CFStringRef key_subdevices = CFSTR("subdevices");
+        CFStringRef key_master = CFSTR("master");
+        CFStringRef key_private = CFSTR("private");
+        CFStringRef key_stacked = CFSTR("stacked");
+        CFStringRef key_taplist = CFSTR("taplist");
+        CFStringRef key_tapautostart = CFSTR("tapautostart");
 
-        NSLog(@"[DEBUG] UUID strings created: tap=%@, device=%@", tap_uuid_str_ns, device_uid_str);
+        // Create subdevice list with tap ID
+        NSLog(@"[DEBUG] Step 4: Creating subdevice list (tap_id=%u)", state->tap_id);
+        tap_id = state->tap_id;  // Use existing tap_id variable from line 410
+        CFNumberRef tap_id_num = CFNumberCreate(NULL, kCFNumberSInt32Type, &tap_id);
+        const void* sub_vals[] = { tap_id_num };
+        CFArrayRef subdevice_list = CFArrayCreate(NULL, sub_vals, 1, &kCFTypeArrayCallBacks);
 
-        // Create aggregate device using NSDictionary (simpler with fixed memory management)
-        NSLog(@"[DEBUG] create_process_tap: Creating aggregate device configuration...");
+        CFArrayRef tap_list = CFArrayCreate(NULL, (const void**)&tap_id_num, 1, &kCFTypeArrayCallBacks);
 
-        // Generate unique UID for aggregate device
-        NSString* agg_device_uid = [NSString stringWithFormat:@"com.proctap.native.%@", [[NSUUID UUID] UUIDString]];
-
-        NSLog(@"[DEBUG] About to create sub-device dictionary...");
-
-        // Create sub-device dictionary
-        NSDictionary* sub_device = @{
-            (__bridge NSString*)kAudioSubDeviceUIDKey: device_uid_str
+        // Create aggregate device dictionary
+        NSLog(@"[DEBUG] Step 5: Creating aggregate device dictionary");
+        const void* agg_keys[] = {
+            key_name,
+            key_uid,
+            key_subdevices,
+            key_master,
+            key_private,
+            key_stacked,
+            key_taplist,
+            key_tapautostart
         };
 
-        NSLog(@"[DEBUG] Sub-device dictionary created");
-
-        // Create tap dictionary
-        NSDictionary* tap_dict = @{
-            (__bridge NSString*)kAudioSubTapDriftCompensationKey: @YES,
-            (__bridge NSString*)kAudioSubTapUIDKey: tap_uuid_str_ns
+        CFStringRef agg_name = CFSTR("ProcTap Aggregate");
+        const void* agg_vals[] = {
+            agg_name,           // name
+            agg_uuid_str,       // uid
+            subdevice_list,     // subdevices
+            tap_id_num,         // master
+            kCFBooleanTrue,     // private
+            kCFBooleanFalse,    // stacked
+            tap_list,           // tap list
+            kCFBooleanTrue      // tap auto start
         };
 
-        // Create main aggregate device configuration
-        NSDictionary* device_dict = @{
-            (__bridge NSString*)kAudioAggregateDeviceNameKey: @"ProcTap Native",
-            (__bridge NSString*)kAudioAggregateDeviceUIDKey: agg_device_uid,
-            (__bridge NSString*)kAudioAggregateDeviceMainSubDeviceKey: device_uid_str,
-            (__bridge NSString*)kAudioAggregateDeviceIsPrivateKey: @YES,
-            (__bridge NSString*)kAudioAggregateDeviceIsStackedKey: @NO,
-            (__bridge NSString*)kAudioAggregateDeviceTapAutoStartKey: @YES,
-            (__bridge NSString*)kAudioAggregateDeviceSubDeviceListKey: @[sub_device],
-            (__bridge NSString*)kAudioAggregateDeviceTapListKey: @[tap_dict]
-        };
-
-        NSLog(@"[DEBUG] create_process_tap: Device dictionary created");
-
-        // Create aggregate device
-        AudioObjectPropertyAddress address = {
-            .mSelector = kAudioPlugInCreateAggregateDevice,
-            .mScope = kAudioObjectPropertyScopeGlobal,
-            .mElement = kAudioObjectPropertyElementMain
-        };
-
-        UInt32 aggregate_data_size = sizeof(AudioObjectID);
-        CFDictionaryRef device_dict_cf = (__bridge CFDictionaryRef)device_dict;
-
-        NSLog(@"[DEBUG] create_process_tap: Calling AudioObjectGetPropertyData...");
-        status = AudioObjectGetPropertyData(
-            kAudioObjectSystemObject,
-            &address,
-            sizeof(CFDictionaryRef),
-            &device_dict_cf,
-            &aggregate_data_size,
-            &state->device_id
+        NSLog(@"[DEBUG] Step 5a: Calling CFDictionaryCreate");
+        CFDictionaryRef device_dict = CFDictionaryCreate(
+            NULL,
+            agg_keys,
+            agg_vals,
+            8,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks
         );
 
-        NSLog(@"[DEBUG] create_process_tap: AudioObjectGetPropertyData returned: %d, device_id: %u", status, state->device_id);
+        if (!device_dict) {
+            NSLog(@"[ERROR] CFDictionaryCreate returned NULL!");
+            CFRelease(tap_id_num);
+            CFRelease(subdevice_list);
+            CFRelease(tap_list);
+            CFRelease(agg_uuid_str);
+            CFRelease(device_uid);
+            snprintf(state->error_message, sizeof(state->error_message),
+                    "Failed to create aggregate device dictionary");
+            return kAudioHardwareUnspecifiedError;
+        }
+        NSLog(@"[DEBUG] Step 5b: Dictionary created: %p", device_dict);
+
+        // Call AudioHardwareCreateAggregateDevice
+        NSLog(@"[DEBUG] Step 6: Calling AudioHardwareCreateAggregateDevice");
+        status = AudioHardwareCreateAggregateDevice(device_dict, &state->device_id);
+        NSLog(@"[DEBUG] Step 6: Returned status=%d, device_id=%u", status, state->device_id);
+
+        // Cleanup
+        NSLog(@"[DEBUG] Step 7: Cleanup");
+        CFRelease(device_dict);
+        CFRelease(subdevice_list);
+        CFRelease(tap_list);
+        CFRelease(tap_id_num);
+        CFRelease(agg_uuid_str);
+        CFRelease(device_uid);
 
         if (status != noErr) {
             snprintf(state->error_message, sizeof(state->error_message),
-                    "Failed to create aggregate device: %d", status);
+                    "AudioHardwareCreateAggregateDevice failed: %d", status);
             return status;
         }
 
-        // Small delay for device initialization
-        usleep(50000);
+        NSLog(@"[DEBUG] Step 8: Configuring aggregate device stream format...");
+        status = configure_aggregate_device(state);
+        if (status != noErr) {
+            snprintf(state->error_message, sizeof(state->error_message),
+                    "Failed to configure aggregate device: %d", status);
+            AudioObjectPropertyAddress destroy_addr = {
+                .mSelector = kAudioPlugInDestroyAggregateDevice,
+                .mScope = kAudioObjectPropertyScopeGlobal,
+                .mElement = kAudioObjectPropertyElementMain
+            };
+            AudioObjectSetPropertyData(
+                kAudioObjectSystemObject,
+                &destroy_addr,
+                0,
+                NULL,
+                sizeof(AudioObjectID),
+                &state->device_id
+            );
+            state->device_id = 0;
+            return status;
+        }
 
+        NSLog(@"[DEBUG] Step 9: SUCCESS!");
         atomic_store(&state->is_initialized, true);
-        NSLog(@"[DEBUG] create_process_tap: Aggregate device created successfully!");
+        // === END AGGREGATE DEVICE CREATION ===
         return noErr;
     }
 }
@@ -575,6 +853,7 @@ static PyObject* create_tap(PyObject* self, PyObject* args, PyObject* kwargs) {
     state->io_proc_id = NULL;  // Initialize to NULL
     atomic_init(&state->is_running, false);
     atomic_init(&state->is_initialized, false);
+    ensure_default_stream_format(state);
 
     // Parse include PIDs
     if (include_pids_list && PyList_Check(include_pids_list)) {
@@ -644,10 +923,16 @@ static PyObject* start_tap(PyObject* self, PyObject* args) {
         Py_RETURN_NONE;
     }
 
+    if (state->tap_id == 0) {
+        PyErr_SetString(PyExc_RuntimeError, "Process tap not initialized");
+        return NULL;
+    }
+
     // Create IOProcID only if not already created
     if (state->io_proc_id == NULL) {
+        NSLog(@"[DEBUG] start_tap: Creating IOProcID for tap %u", state->tap_id);
         OSStatus status = AudioDeviceCreateIOProcID(
-            state->device_id,
+            state->tap_id,
             io_proc_callback,
             state,
             &state->io_proc_id
@@ -659,13 +944,17 @@ static PyObject* start_tap(PyObject* self, PyObject* args) {
         }
     }
 
+    log_stream_format("[DEBUG] start_tap: Tap format", &state->format);
+    NSLog(@"[DEBUG] About to start tap %u with IOProcID=%p", state->tap_id, state->io_proc_id);
+
     // Start device with IOProcID (NOT function pointer!)
-    OSStatus status = AudioDeviceStart(state->device_id, state->io_proc_id);
+    OSStatus status = AudioDeviceStart(state->tap_id, state->io_proc_id);
+    NSLog(@"[DEBUG] AudioDeviceStart returned status=%d (0x%08X)", status, (unsigned int)status);
     if (status != noErr) {
         // Cleanup on failure
-        AudioDeviceDestroyIOProcID(state->device_id, state->io_proc_id);
+        AudioDeviceDestroyIOProcID(state->tap_id, state->io_proc_id);
         state->io_proc_id = NULL;
-        PyErr_Format(PyExc_RuntimeError, "Failed to start device: %d (0x%08X)", status, status);
+        PyErr_Format(PyExc_RuntimeError, "Failed to start device: %d (0x%08X)", status, (unsigned int)status);
         return NULL;
     }
 
@@ -697,8 +986,10 @@ static PyObject* stop_tap(PyObject* self, PyObject* args) {
 
     // Stop and destroy IOProc if it exists
     if (state->io_proc_id != NULL) {
-        AudioDeviceStop(state->device_id, state->io_proc_id);
-        AudioDeviceDestroyIOProcID(state->device_id, state->io_proc_id);
+        OSStatus stop_status = AudioDeviceStop(state->tap_id, state->io_proc_id);
+        NSLog(@"[DEBUG] stop_tap: AudioDeviceStop returned %d", stop_status);
+        OSStatus destroy_status = AudioDeviceDestroyIOProcID(state->tap_id, state->io_proc_id);
+        NSLog(@"[DEBUG] stop_tap: AudioDeviceDestroyIOProcID returned %d", destroy_status);
         state->io_proc_id = NULL;
     }
 
@@ -779,15 +1070,20 @@ static PyObject* destroy_tap(PyObject* self, PyObject* args) {
 
         // Stop and destroy IOProc if it exists
         if (state->io_proc_id != NULL) {
-            AudioDeviceStop(state->device_id, state->io_proc_id);
-            AudioDeviceDestroyIOProcID(state->device_id, state->io_proc_id);
+            OSStatus stop_status = AudioDeviceStop(state->tap_id, state->io_proc_id);
+            NSLog(@"[DEBUG] destroy_tap: AudioDeviceStop returned %d", stop_status);
+            OSStatus destroy_status = AudioDeviceDestroyIOProcID(state->tap_id, state->io_proc_id);
+            NSLog(@"[DEBUG] destroy_tap: AudioDeviceDestroyIOProcID returned %d", destroy_status);
             state->io_proc_id = NULL;
         }
     }
 
     // Destroy process tap
     if (state->tap_id != 0) {
-        AudioHardwareDestroyProcessTap(state->tap_id);
+        AudioObjectID tap_id = state->tap_id;
+        OSStatus tap_status = AudioHardwareDestroyProcessTap(tap_id);
+        NSLog(@"[DEBUG] destroy_tap: AudioHardwareDestroyProcessTap(%u) -> %d",
+              tap_id, tap_status);
         state->tap_id = 0;
     }
 
@@ -799,7 +1095,8 @@ static PyObject* destroy_tap(PyObject* self, PyObject* args) {
             .mElement = kAudioObjectPropertyElementMain
         };
 
-        AudioObjectSetPropertyData(
+        AudioObjectID device_id = state->device_id;
+        OSStatus destroy_status = AudioObjectSetPropertyData(
             kAudioObjectSystemObject,
             &address,
             0,
@@ -807,6 +1104,8 @@ static PyObject* destroy_tap(PyObject* self, PyObject* args) {
             sizeof(AudioObjectID),
             &state->device_id
         );
+        NSLog(@"[DEBUG] destroy_tap: Destroy aggregate device %u status=%d",
+              device_id, destroy_status);
         state->device_id = 0;
     }
 
@@ -824,6 +1123,8 @@ static PyObject* destroy_tap(PyObject* self, PyObject* args) {
 // ============================================================================
 
 static PyMethodDef module_methods[] = {
+    {"request_permission_prompt", request_screen_recording_permission, METH_NOARGS,
+     "Trigger macOS Screen Recording permission dialog."},
     {"create_tap", (PyCFunction)create_tap, METH_VARARGS | METH_KEYWORDS,
      "Create a process audio tap"},
     {"start_tap", start_tap, METH_VARARGS,

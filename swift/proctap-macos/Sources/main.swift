@@ -2,7 +2,25 @@ import Foundation
 import CoreAudio
 import AudioToolbox
 
-/// Exit codes for the CLI
+// MARK: - C API Declarations
+
+// AudioObjectPropertyAddress struct (fixed inline creation)
+extension AudioObjectPropertyAddress {
+    init(selector: AudioObjectPropertySelector, scope: AudioObjectPropertyScope, element: AudioObjectPropertyElement) {
+        self.init(mSelector: selector, mScope: scope, mElement: element)
+    }
+}
+
+// Process Tap Constants (from AudioHardware.h)
+private let kAudioHardwarePropertyProcessObjectList: AudioObjectPropertySelector = 0x706f626a // 'pobj'
+private let kAudioHardwarePropertyTranslatePIDToProcessObject: AudioObjectPropertySelector = 0x70696432 // 'pid2'
+
+// Tap creation function (imported from AudioHardware framework)
+@_silgen_name("AudioHardwareCreateProcessTap")
+func AudioHardwareCreateProcessTap(_ inDescription: UnsafePointer<UInt8>?, _ outTapID: UnsafeMutablePointer<AudioObjectID>) -> OSStatus
+
+// MARK: - Exit Codes
+
 enum ExitCode: Int32 {
     case success = 0
     case invalidArguments = 1
@@ -12,7 +30,8 @@ enum ExitCode: Int32 {
     case captureError = 5
 }
 
-/// Command-line arguments
+// MARK: - Command-line Arguments
+
 struct Arguments {
     let pid: pid_t
     let sampleRate: Double
@@ -67,7 +86,8 @@ struct Arguments {
     }
 }
 
-/// Process Audio Tap Manager
+// MARK: - Process Audio Tap Manager
+
 class ProcessAudioTap {
     private let pid: pid_t
     private let sampleRate: Double
@@ -89,8 +109,8 @@ class ProcessAudioTap {
         let processObject = try getProcessObject(for: pid)
         fputs("Process object ID: \(processObject)\n", stderr)
 
-        // Step 2: Create process tap
-        tap = try createProcessTap(for: processObject)
+        // Step 2: Create process tap using simple approach
+        tap = try createSimpleProcessTap(for: processObject)
         fputs("Process tap created: \(tap)\n", stderr)
 
         // Step 3: Create aggregate device with the tap
@@ -128,18 +148,19 @@ class ProcessAudioTap {
     private func getProcessObject(for pid: pid_t) throws -> AudioObjectID {
         var processObject: AudioObjectID = 0
         var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        var translation = UInt32(pid)  // Qualifier is the PID as UInt32
 
-        var translation = AudioObjectID(pid)
+        var address = AudioObjectPropertyAddress(
+            selector: kAudioHardwarePropertyTranslatePIDToProcessObject,
+            scope: kAudioObjectPropertyScopeGlobal,
+            element: kAudioObjectPropertyElementMain
+        )
 
         let status = AudioObjectGetPropertyData(
             AudioObjectID(kAudioObjectSystemObject),
-            &AudioObjectPropertyAddress(
-                mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            ),
-            UInt32(MemoryLayout<AudioObjectID>.size),
-            &translation,
+            &address,
+            UInt32(MemoryLayout<UInt32>.size),  // Qualifier size is sizeof(UInt32)
+            &translation,  // Qualifier data is the PID
             &size,
             &processObject
         )
@@ -155,30 +176,20 @@ class ProcessAudioTap {
         return processObject
     }
 
-    private func createProcessTap(for processObject: AudioObjectID) throws -> AudioObjectID {
+    private func createSimpleProcessTap(for processObject: AudioObjectID) throws -> AudioObjectID {
         var tapID: AudioObjectID = 0
 
-        // Create tap description
-        var tapDesc = CATapDescription()
-        tapDesc.mIncludeProcesses = (processObject, 0, 0, 0, 0, 0, 0, 0)
-        tapDesc.mIncludeProcessesCount = 1
-        tapDesc.mExcludeProcesses = (0, 0, 0, 0, 0, 0, 0, 0)
-        tapDesc.mExcludeProcessesCount = 0
-        tapDesc.mProcessingType = kAudioTapProcessingTypeMixDown
-        tapDesc.mName = ("ProcTap".utf8CString + Array(repeating: 0, count: 256))[0..<256].map { Int8($0) }
-            .withUnsafeBufferPointer { buffer in
-                var name = (Int8(0), Int8(0), Int8(0), Int8(0), Int8(0), Int8(0), Int8(0), Int8(0),
-                           Int8(0), Int8(0), Int8(0), Int8(0), Int8(0), Int8(0), Int8(0), Int8(0))
-                for i in 0..<min(buffer.count, 16) {
-                    withUnsafeMutableBytes(of: &name) { ptr in
-                        ptr[i] = UInt8(bitPattern: buffer[i])
-                    }
-                }
-                return name
-            }
-        tapDesc.mMuteBehavior = kAudioTapMuteBehaviorDoNotMute
+        // Instead of using CATapDescription (which isn't properly exposed),
+        // we'll use a simpler approach by passing nil to let the system create a default tap
+        // This is a workaround for the incomplete Swift bindings
 
-        let status = AudioHardwareCreateProcessTap(&tapDesc, &tapID)
+        // Create a minimal tap description as raw bytes
+        // Format: Simple process list (just the process object ID)
+        var processIDs: [UInt32] = [processObject]
+
+        let status = processIDs.withUnsafeMutableBytes { buffer in
+            AudioHardwareCreateProcessTap(buffer.baseAddress?.assumingMemoryBound(to: UInt8.self), &tapID)
+        }
 
         guard status == noErr else {
             throw NSError(

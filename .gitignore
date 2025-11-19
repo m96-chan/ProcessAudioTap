@@ -213,3 +213,15 @@ output.wav
 profiling_results/
 *.prof
 *.pstats
+
+# Swift build artifacts
+**/.build/
+.build/
+
+# Build artifacts
+src/proctap/bin/
+
+# Temporary test files
+check_symbols.py
+test_pyobjc_ioproc.py
+test_step_by_step.py
