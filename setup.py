@@ -23,16 +23,17 @@ class BuildPyCommand(build_py):
         build_py.run(self)
 
     def build_swift_helper(self):
-        """Build the Swift CLI helper for macOS."""
-        swift_dir = Path("swift/proctap-macos")
+        """Build the Swift CLI helper for ScreenCaptureKit backend on macOS."""
+        swift_dir = Path("swift/screencapture-audio")
         if not swift_dir.exists():
             print("WARNING: Swift helper source directory not found, skipping Swift build")
+            print(f"  Expected: {swift_dir}")
             return
 
-        print("Building Swift CLI helper for macOS...")
+        print("Building ScreenCaptureKit Swift helper for macOS...")
         try:
             # Build with SwiftPM in release mode
-            subprocess.run(
+            result = subprocess.run(
                 ["swift", "build", "-c", "release"],
                 cwd=swift_dir,
                 check=True,
@@ -45,8 +46,16 @@ class BuildPyCommand(build_py):
             bin_dir = Path("src/proctap/bin")
             bin_dir.mkdir(parents=True, exist_ok=True)
 
-            binary_src = swift_dir / ".build" / "release" / "proctap-macos"
-            binary_dst = bin_dir / "proctap-macos"
+            # Detect architecture (arm64 or x86_64)
+            import platform as plat
+            arch = plat.machine()
+            if arch == "arm64":
+                build_arch = "arm64-apple-macosx"
+            else:
+                build_arch = "x86_64-apple-macosx"
+
+            binary_src = swift_dir / ".build" / build_arch / "release" / "screencapture-audio"
+            binary_dst = bin_dir / "screencapture-audio"
 
             if binary_src.exists():
                 import shutil
@@ -57,15 +66,16 @@ class BuildPyCommand(build_py):
                 os.chmod(binary_dst, 0o755)
             else:
                 print(f"WARNING: Built binary not found at {binary_src}")
+                print(f"  Checked architecture: {build_arch}")
 
         except subprocess.CalledProcessError as e:
             print(f"WARNING: Swift build failed: {e}")
             print(f"stdout: {e.stdout}")
             print(f"stderr: {e.stderr}")
-            print("macOS backend will not be functional")
+            print("ScreenCaptureKit backend will not be functional")
         except FileNotFoundError:
             print("WARNING: Swift compiler not found. Install Xcode or Swift toolchain.")
-            print("macOS backend will not be functional")
+            print("ScreenCaptureKit backend will not be functional")
 
 
 # Build native extension only on Windows
@@ -105,9 +115,9 @@ elif platform.system() == "Linux":
     print("NOTE: Per-process isolation has limitations on Linux")
 
 elif platform.system() == "Darwin":  # macOS
-    # macOS: Swift CLI helper for Core Audio Process Tap (macOS 14.4+)
-    print("Building for macOS with Core Audio Process Tap backend (macOS 14.4+)")
-    print("NOTE: Swift CLI helper will be built if Swift toolchain is available")
+    # macOS: ScreenCaptureKit backend via Swift CLI helper (no C extension needed)
+    print("Building for macOS with ScreenCaptureKit backend (macOS 13+)")
+    print("NOTE: Swift helper binary will be built and bundled automatically")
 
 else:
     print(f"WARNING: Platform '{platform.system()}' is not officially supported")
@@ -120,7 +130,7 @@ setup(
     package_dir={"": "src"},
     ext_modules=ext_modules,
     package_data={
-        "proctap": ["bin/proctap-macos"],  # Include Swift helper binary
+        "proctap": ["bin/screencapture-audio"],  # Include ScreenCaptureKit Swift helper
     },
     cmdclass={
         "build_py": BuildPyCommand,

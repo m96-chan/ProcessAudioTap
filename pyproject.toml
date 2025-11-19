@@ -38,6 +38,8 @@ dependencies = [
     "numpy>=1.20.0",
     "scipy>=1.7.0",
     "pulsectl>=23.5.0; sys_platform == 'linux'",
+    "pyobjc-core>=9.0; sys_platform == 'darwin'",
+    "pyobjc-framework-CoreAudio>=9.0; sys_platform == 'darwin'",
 ]
 
 [project.urls]
@@ -109,5 +111,9 @@ module = [
     "faster_whisper.*",
     "samplerate",
     "samplerate.*",
+    "Foundation",
+    "Foundation.*",
+    "CoreAudio",
+    "CoreAudio.*",
 ]
 ignore_missing_imports = true

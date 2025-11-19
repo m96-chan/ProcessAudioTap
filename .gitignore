@@ -213,3 +213,27 @@ output.wav
 profiling_results/
 *.prof
 *.pstats
+
+# Swift build artifacts
+**/.build/
+.build/
+
+# Build artifacts
+src/proctap/bin/
+
+# Temporary test files
+check_symbols.py
+test_pyobjc_ioproc.py
+test_step_by_step.py
+test_backend_direct.py
+test_screencapture_quick.py
+test_with_safari.sh
+
+# Test audio output files
+*.wav
+*.pcm
+!examples/*.wav
+
+# Intermediate documentation
+MACOS_SCREENCAPTUREKIT_SUMMARY.md
+SCREENCAPTUREKIT_IMPLEMENTATION.md
