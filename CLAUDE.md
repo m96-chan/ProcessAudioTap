@@ -24,14 +24,35 @@ ProcTap is a cross-platform Python library for capturing audio from specific pro
 
 ## Development Guidelines
 
+### Test File Organization
+
+**IMPORTANT:** Use `.claude_test/` directory for all temporary and experimental test files:
+
+**Required Usage of `.claude_test/`:**
+- All temporary test scripts (for quick testing/debugging)
+- Experimental or throw-away code
+- Test audio files and sample data
+- Any files created for verification purposes
+- Example/demo files used during development
+
+**Do NOT use `.claude_test/` for:**
+- Official test suite files (use `tests/` directory)
+- Production examples (use `examples/` directory)
+- Production code (use `src/` directory)
+
+**Cleanup:**
+- `.claude_test/` is gitignored
+- Clean up files in `.claude_test/` after completing tests
+- Only commit to `tests/`, `examples/`, or `src/` when ready for production
+
 ### Testing Standards
 
-**IMPORTANT:** When creating test code, ALWAYS follow pytest conventions:
+**IMPORTANT:** When creating official test code, ALWAYS follow pytest conventions:
 - Use pytest framework for all tests
 - Place tests in `tests/` directory or name files with `test_*.py` pattern
 - Use pytest fixtures, parametrize, and markers
 - Follow pytest discovery conventions
-- Delete experimental/temporary test scripts after verification
+- Use `.claude_test/` for experimental scripts before moving to `tests/`
 
 ### Setup and Building
 
@@ -89,8 +110,13 @@ python -m proctap --pid 12345 --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe
 # Using process name instead of PID
 proctap --name "VRChat.exe" --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0 output.mp3
 
-# Custom sample rate and mono output
-proctap --pid 12345 --sample-rate 44100 --channels 1 --stdout | ffmpeg -f s16le -ar 44100 -ac 1 -i pipe:0 output.wav
+# Low-latency mode with fast resampling (for real-time streaming)
+proctap --pid 12345 --resample-quality fast --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0 output.mp3
+
+# Available quality modes:
+# --resample-quality best   (highest quality, ~1.3-1.4ms latency, default)
+# --resample-quality medium (medium quality, ~0.7-0.9ms latency)
+# --resample-quality fast   (lowest quality, ~0.3-0.5ms latency)
 ```
 
 ### macOS Setup
@@ -99,7 +125,7 @@ proctap --pid 12345 --sample-rate 44100 --channels 1 --stdout | ffmpeg -f s16le 
 
 ```bash
 # Build Swift helper binary
-cd swift/screencapture-audio
+cd src/proctap/swift/screencapture-audio
 swift build -c release
 
 # Enable Screen Recording permission
@@ -151,12 +177,13 @@ backends/__init__.py (Platform Detection)
 **Windows Backend** ([backends/windows.py](src/proctap/backends/windows.py)):
 - Wraps `_native.cpp` C++ extension
 - Per-process audio capture requires `ActivateAudioInterfaceAsync` (Windows 10 20H1+)
-- Native WASAPI format: 44.1kHz, 2ch, 16-bit PCM (fixed in C++)
+- Native WASAPI format: 48kHz, 2ch, float32 (IEEE 754) - optimal quality
+- Fallback: 44.1kHz, 2ch, 16-bit PCM if float32 initialization fails
 - **Audio Format Conversion** ([backends/converter.py](src/proctap/backends/converter.py)):
-  - Python-based audio format conversion using scipy
+  - Python-based audio format conversion using scipy/numpy
   - Supports sample rate conversion (resampling)
   - Supports channel conversion (mono ↔ stereo)
-  - Supports bit depth conversion (8/16/24/32-bit)
+  - Supports bit depth conversion (8/16/24/32-bit, int/float)
   - Automatically converts WASAPI output to match `StreamConfig`
   - No conversion overhead if formats already match
 
@@ -183,17 +210,18 @@ backends/__init__.py (Platform Detection)
   - Low latency (~10-15ms)
 - **Requirements:**
   - macOS 13.0 (Ventura) or later
-  - Swift helper binary: `cd swift/screencapture-audio && swift build`
+  - Swift helper binary: `cd src/proctap/swift/screencapture-audio && swift build`
   - Screen Recording permission (System Settings → Privacy & Security)
 - **Implementation:**
   - Swift CLI helper (`screencapture-audio`) captures via ScreenCaptureKit
   - Python backend manages subprocess and PCM streaming
   - PID → bundleID translation using `lsappinfo`
   - See [backends/macos_screencapture.py](src/proctap/backends/macos_screencapture.py)
-  - See [swift/screencapture-audio/](swift/screencapture-audio/) for Swift implementation
+  - See [swift/screencapture-audio/](src/proctap/swift/screencapture-audio/) for Swift implementation
 
 **Experimental/Archived Backends**:
-- PyObjC backend: [backends/macos_pyobjc.py](src/proctap/backends/macos_pyobjc.py) - IOProc callback issues
+- PyObjC backend: [backends/macos_pyobjc.py](src/proctap/backends/macos_pyobjc.py) - IOProc callback issues (Fallback only)
+- Archived experimental backends: [archive/experimental-backends/](archive/experimental-backends/) - Process Tap implementations (AMFI limitations)
 - Process Tap investigation: [archive/apple-silicon-investigation-20251120/](archive/apple-silicon-investigation-20251120/) - AMFI limitations on Apple Silicon
 
 ### Threading Model
@@ -220,16 +248,18 @@ Audio Source (Process-specific)
   - Callback mode: `start(on_data=callback)`
   - Async mode: `async for chunk in tap.iter_chunks()`
   - Uses platform-specific backend via `get_backend()`
-- `StreamConfig`: Audio format configuration
-  - If `None`, uses native backend format (no conversion)
-  - If specified, backend converts to match the desired format
+  - Accepts `resample_quality` parameter for controlling resampling performance:
+    - `'best'`: Highest quality, ~1.3-1.4ms latency (default)
+    - `'medium'`: Medium quality, ~0.7-0.9ms latency
+    - `'fast'`: Lowest quality, ~0.3-0.5ms latency
 
 **[backends/](src/proctap/backends/)** - Platform-specific implementations:
 - `base.py`: `AudioBackend` abstract base class
 - `windows.py`: Windows implementation (wraps `_native.cpp` + format conversion)
 - `linux.py`: Linux PipeWire/PulseAudio implementation (fully supported, v0.3.0+)
 - `pipewire_native.py`: Native PipeWire API bindings (in development)
-- `macos.py`: macOS Core Audio Process Tap implementation (experimental)
+- `macos_screencapture.py`: macOS ScreenCaptureKit backend (recommended, macOS 13+)
+- `macos_pyobjc.py`: macOS PyObjC fallback backend (experimental, has IOProc issues)
 - `converter.py`: Audio format converter (sample rate, channels, bit depth)
 
 **[_native.cpp](src/proctap/_native.cpp)** - Windows C++ Extension:
@@ -266,10 +296,12 @@ The build system ([setup.py](setup.py)) automatically detects the platform and b
 - Python dependencies: `pulsectl` library (automatically installed)
 
 **macOS Builds:**
-- Pure Python backend using PyObjC (no compilation needed)
-- PyObjC dependencies installed automatically on macOS via environment markers
-- No Swift toolchain or Xcode required
-- **Experimental backends** (Swift CLI, C extension) are in `src/proctap/experimental/` and not recommended
+- Primary: ScreenCaptureKit backend via Swift CLI helper (automatic build)
+  - Swift helper built during `pip install` if Swift toolchain available
+  - Bundled binary included in package distribution
+- Fallback: PyObjC backend (no compilation needed)
+  - PyObjC dependencies installed automatically on macOS via environment markers
+- **Archived experimental backends** in `archive/experimental-backends/` (not used in production)
 
 ## Python Dependencies
 
@@ -282,6 +314,10 @@ The build system ([setup.py](setup.py)) automatically detects the platform and b
     - Install with: `pip install proc-tap[hq-resample]`
     - **Note**: May fail to build on some platforms (Windows with Python 3.13+)
     - Falls back to scipy if not available
+    - Supports three quality modes via `resample_quality` parameter:
+      - `'best'`: Uses `sinc_best` converter (default)
+      - `'medium'`: Uses `sinc_medium` converter
+      - `'fast'`: Uses `sinc_fastest` converter
 - **Windows**: Uses native C++ extension + Python format conversion
 - **Linux**: `pulsectl>=23.5.0` (automatically installed via environment markers in pyproject.toml)
 - **macOS**: `pyobjc-core>=9.0`, `pyobjc-framework-CoreAudio>=9.0` (automatically installed via environment markers in pyproject.toml)
@@ -309,8 +345,18 @@ The build system ([setup.py](setup.py)) automatically detects the platform and b
 
 **Windows Backend:**
 
-The Windows native extension uses a **fixed audio format** hardcoded in [_native.cpp:329-336](src/proctap/_native.cpp#L329-L336):
+The Windows native extension attempts 48kHz float32 first, with fallback to 44.1kHz int16 ([_native.cpp:329-365](src/proctap/_native.cpp#L329-L365)):
 
+**Primary Format (Preferred):**
+- **Sample Rate:** 48,000 Hz
+- **Channels:** 2 (stereo)
+- **Bits per Sample:** 32-bit
+- **Format:** IEEE float (WAVE_FORMAT_IEEE_FLOAT)
+- **Value Range:** -1.0 to +1.0 (normalized)
+- **Block Align:** 8 bytes (2 channels × 32 bits / 8)
+- **Byte Rate:** 384,000 bytes/sec
+
+**Fallback Format (If float32 fails):**
 - **Sample Rate:** 44,100 Hz (CD quality)
 - **Channels:** 2 (stereo)
 - **Bits per Sample:** 16-bit
@@ -318,61 +364,59 @@ The Windows native extension uses a **fixed audio format** hardcoded in [_native
 - **Block Align:** 4 bytes (2 channels × 16 bits / 8)
 - **Byte Rate:** 176,400 bytes/sec
 
-**Format Conversion (New in v0.2.1):**
+**Format Behavior:**
 
-The `StreamConfig` parameter now controls output format through automatic conversion:
+The Windows backend **always returns 48kHz float32** to user code:
 
-- **Native Format (C++)**: Fixed at 44.1kHz, 2ch, 16-bit PCM (WASAPI requirement)
-- **Output Format (Python)**: Converted to match `StreamConfig` settings
-- **Conversion Features**:
-  - Sample rate conversion (e.g., 44.1kHz → 48kHz)
-  - Channel conversion (stereo ↔ mono)
-  - Bit depth conversion (8/16/24/32-bit)
-  - Automatic bypass when formats match (zero overhead)
-- **Resampling Quality** (automatic priority order):
-  1. **libsamplerate** (optional, highest quality)
-     - Professional-grade SRC (Sample Rate Converter)
-     - SINC interpolation with minimal artifacts
-     - Install with: `pip install proc-tap[hq-resample]`
-     - **Note**: May fail to build on Windows with Python 3.13+
-  2. **scipy.signal.resample_poly** (default fallback, high quality)
-     - Polyphase filtering
-     - Used if libsamplerate is not installed or unavailable
-  3. **scipy.signal.resample** (final fallback)
-     - FFT-based resampling
-     - Used only if both above methods fail
-- **Usage**:
-  ```python
-  # Use native format (no conversion)
-  tap = ProcessAudioCapture(pid, config=None)
+- **If native is 48kHz float32**: No conversion (zero overhead)
+- **If fallback to 44.1kHz int16**: Automatically converts to 48kHz float32 using AudioConverter
 
-  # Convert to 48kHz stereo (uses libsamplerate if available, scipy otherwise)
-  config = StreamConfig(sample_rate=48000, channels=2)
-  tap = ProcessAudioCapture(pid, config=config)
-  ```
+This ensures consistent output format regardless of which WASAPI format succeeds.
+
+**Important Notes:**
+- `StreamConfig` has been deprecated and removed
+- All backends now return their native high-quality format
+- Windows: 48kHz float32
+- Linux: 44.1kHz int16 (configurable)
+- macOS: 48kHz int16 (configurable)
+
+**For WAV file output:**
+
+Users must convert float32 to int16 for standard WAV files:
+
+```python
+import numpy as np
+
+def on_data(pcm: bytes, frames: int):
+    # Convert float32 to int16
+    float_samples = np.frombuffer(pcm, dtype=np.float32)
+    int16_samples = (np.clip(float_samples, -1.0, 1.0) * 32767).astype(np.int16)
+    wav.writeframes(int16_samples.tobytes())
+```
 
 **Linux Backend:**
 
-The PulseAudio backend respects the `StreamConfig` settings:
+The PulseAudio backend default format:
 - Default: 44,100 Hz, 2 channels, 16-bit PCM
-- Configurable via `StreamConfig` parameter
+- Returns raw int16 PCM data
 
 **macOS Backend:**
 
-The Core Audio Process Tap backend respects the `StreamConfig` settings:
+The Core Audio Process Tap backend default format:
 - Default: 48,000 Hz, 2 channels, 16-bit PCM
-- Configurable via `StreamConfig` parameter
-- Format specified via command-line args to Swift helper
+- Returns raw int16 PCM data
 
 Raw PCM data is returned as `bytes` to user callbacks/iterators.
 
 ## Known Issues and TODOs
 
 **Windows Backend:**
-1. ✅ **Audio Format Conversion** - COMPLETED in v0.2.1
-   - StreamConfig now controls output format via Python-based conversion
-   - WASAPI native format (44.1kHz/2ch/16bit) automatically converted to desired format
-   - See [backends/converter.py](src/proctap/backends/converter.py)
+1. ✅ **LOOPBACK Format Detection** - COMPLETED
+   - LOOPBACKモードでは実際のミックスフォーマットが指定と異なる可能性がある
+   - `Initialize()`成功後、`GetMixFormat()`で実際のフォーマットを取得
+   - 実際のフォーマットと指定が異なる場合は`m_waveFormat`を更新
+   - Python側の`AudioConverter`が自動的に48kHz float32に変換
+   - 詳細ログで実際のフォーマットを確認可能（OutputDebugString）
 
 2. **Frame Count Calculation** ([core.py:207](src/proctap/core.py#L207)):
    - Currently returns `-1` for frame count in callbacks
@@ -397,16 +441,19 @@ Raw PCM data is returned as `bytes` to user callbacks/iterators.
    - Test with various PipeWire and PulseAudio versions
    - Validate fallback behavior
 
-**macOS Backend (Experimental):**
-1. **Core Audio Process Tap Implementation** ([backends/macos.py](src/proctap/backends/macos.py)):
-   - ✅ Basic implementation complete using Swift CLI helper
-   - ✅ macOS 14.4+ version detection
-   - ✅ Swift helper binary discovery and subprocess management
-   - ✅ PCM streaming from stdout
-   - TODO: Test on actual macOS 14.4+ system
-   - TODO: Handle permission prompts gracefully
-   - TODO: Improve error messages for common failure modes
-   - TODO: Code signing guidance for distribution
+**macOS Backend:**
+1. **ScreenCaptureKit Backend** ([backends/macos_screencapture.py](src/proctap/backends/macos_screencapture.py)):
+   - ✅ Production-ready (macOS 13+)
+   - ✅ BundleID-based capture
+   - ✅ Swift CLI helper with automatic build
+   - ✅ Screen Recording permission handling
+   - TODO: Improve error messages for common TCC permission failures
+   - TODO: Add universal binary support for Swift helper
+
+2. **PyObjC Fallback Backend** ([backends/macos_pyobjc.py](src/proctap/backends/macos_pyobjc.py)):
+   - ⚠️  Experimental fallback only
+   - ⚠️  IOProc callback reliability issues
+   - TODO: Investigate callback timing issues on different macOS versions
 
 **General:**
 1. **Test Coverage:**

@@ -12,12 +12,22 @@ from __future__ import annotations
 import numpy as np
 import logging
 import struct
-from typing import Optional, cast
+from typing import Optional, cast, Literal
 
 logger = logging.getLogger(__name__)
 
+# Resample quality modes
+ResampleQuality = Literal['best', 'medium', 'fast']
+
+# libsamplerate converter type mapping
+SAMPLERATE_CONVERTER_TYPES = {
+    'best': 'sinc_best',      # Highest quality, slowest (~1.3-1.4ms for 44.1->48kHz)
+    'medium': 'sinc_medium',  # Medium quality, faster (~0.7-0.9ms estimated)
+    'fast': 'sinc_fastest',   # Lowest quality, fastest (~0.3-0.5ms estimated)
+}
+
 try:
-    from scipy import signal
+    from scipy import signal  # type: ignore[import-untyped]
     HAS_SCIPY = True
 except ImportError:
     HAS_SCIPY = False
@@ -69,6 +79,7 @@ class AudioConverter:
         src_format: str = SampleFormat.INT16,
         dst_format: str = SampleFormat.INT16,
         auto_detect_format: bool = True,
+        resample_quality: ResampleQuality = 'best',
     ):
         """
         Initialize audio converter.
@@ -83,6 +94,10 @@ class AudioConverter:
             src_format: Source sample format (int16, int24, int24_32, int32, float32)
             dst_format: Destination sample format
             auto_detect_format: If True, automatically detect if source is int16 or float32
+            resample_quality: Resampling quality mode ('best', 'medium', 'fast')
+                - 'best': Highest quality, ~1.3-1.4ms latency (default)
+                - 'medium': Medium quality, ~0.7-0.9ms latency
+                - 'fast': Lowest quality, ~0.3-0.5ms latency
         """
         if not HAS_SCIPY:
             raise RuntimeError("scipy is required for audio format conversion. Install with: pip install scipy")
@@ -96,6 +111,7 @@ class AudioConverter:
         self.dst_width = dst_width
         self.dst_format = dst_format
         self.auto_detect_format = auto_detect_format
+        self.resample_quality = resample_quality
 
         # Format detection state (OPTIMIZATION 1.1: Cache format detection)
         self._format_detected = False
@@ -121,7 +137,7 @@ class AudioConverter:
             f"AudioConverter initialized: {src_rate}Hz/{src_channels}ch/{src_width*8}bit "
             f"-> {dst_rate}Hz/{dst_channels}ch/{dst_width*8}bit "
             f"(resample={self.needs_resample}, channels={self.needs_channel_conversion}, "
-            f"bits={self.needs_bit_conversion})"
+            f"bits={self.needs_bit_conversion}, quality={resample_quality})"
         )
 
     def _detect_pcm_format(self, pcm_bytes: bytes) -> str:
@@ -410,16 +426,17 @@ class AudioConverter:
 
         ratio = dst_rate / src_rate
 
-        # Method 1: Use libsamplerate if available (highest quality)
+        # Method 1: Use libsamplerate if available (quality-configurable)
         if HAS_SAMPLERATE:
-            logger.debug(f"Resampling with libsamplerate: {src_rate}Hz -> {dst_rate}Hz (ratio={ratio:.4f})")
+            converter_type = SAMPLERATE_CONVERTER_TYPES.get(self.resample_quality, 'sinc_best')
+            logger.debug(f"Resampling with libsamplerate ({converter_type}): {src_rate}Hz -> {dst_rate}Hz (ratio={ratio:.4f})")
             try:
                 # samplerate works with both mono and stereo
                 # Shape: (num_frames,) for mono, (num_frames, channels) for stereo
                 resampled: np.ndarray = samplerate.resample(
                     audio,
                     ratio,
-                    converter_type='sinc_best'  # Highest quality mode
+                    converter_type=converter_type
                 )
                 return resampled.astype(np.float32)
             except Exception as e:
@@ -437,7 +454,8 @@ class AudioConverter:
 
             if audio.ndim == 1:
                 # Mono
-                return signal.resample_poly(audio, up, down).astype(np.float32)
+                result_mono: np.ndarray = signal.resample_poly(audio, up, down).astype(np.float32)  # type: ignore[no-any-return]
+                return result_mono
             else:
                 # Multi-channel: process along axis=0 (time axis), vectorized per-channel
                 # Note: resample_poly doesn't support multi-channel directly, so we still need a loop
@@ -461,7 +479,8 @@ class AudioConverter:
         new_num_samples = int(num_samples * ratio)
 
         if audio.ndim == 1:
-            return signal.resample(audio, new_num_samples).astype(np.float32)
+            result_fft: np.ndarray = signal.resample(audio, new_num_samples).astype(np.float32)  # type: ignore[no-any-return]
+            return result_fft
         else:
             resampled = np.zeros((new_num_samples, audio.shape[1]), dtype=np.float32)
             for ch in range(audio.shape[1]):

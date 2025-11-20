@@ -27,9 +27,9 @@ Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
 |----------|--------|---------|-------|
 | **Windows** | ✅ **Fully Supported** | WASAPI (C++ native) | Windows 10/11 (20H1+) |
 | **Linux** | ✅ **Fully Supported** | PipeWire Native / PulseAudio | Per-process isolation, auto-fallback (v0.3.0+) |
-| **macOS** | 🧪 **Experimental** | Core Audio Process Tap | macOS 14.4+ (Sonoma) required |
+| **macOS** | ✅ **Officially Supported** | ScreenCaptureKit | macOS 13+ (Ventura), bundleID-based (v0.4.0+) |
 
-<sub>\* Linux is fully supported with PipeWire/PulseAudio (v0.3.0+). macOS support is experimental (see requirements).</sub>
+<sub>\* Linux is fully supported with PipeWire/PulseAudio (v0.3.0+). macOS is officially supported with ScreenCaptureKit (v0.4.0+).</sub>
 
 </div>
 
@@ -41,15 +41,15 @@ Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
   (VRChat, games, browsers, Discord, DAWs, streaming tools, etc.)
 
 - 🌍 **Cross-platform architecture**
-  → Windows (fully supported) | Linux (fully supported, v0.3.0+) | macOS (experimental, 14.4+)
+  → Windows (fully supported) | Linux (fully supported, v0.3.0+) | macOS (officially supported, v0.4.0+)
 
 - ⚡ **Platform-optimized backends**
   → Windows: ActivateAudioInterfaceAsync (modern WASAPI)
   → Linux: PipeWire Native API / PulseAudio (fully supported, v0.3.0+)
-  → macOS: Core Audio Process Tap API (macOS 14.4+)
+  → macOS: ScreenCaptureKit API (macOS 13+, bundleID-based, v0.4.0+)
 
 - 🧵 **Low-latency, thread-safe audio engine**
-  → 44.1 kHz / stereo / 16-bit PCM format (Windows)
+  → 48 kHz / stereo / float32 format (Windows)
 
 - 🐍 **Python-friendly high-level API**
   - Callback-based streaming
@@ -130,8 +130,8 @@ proctap --name "VRChat.exe" --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0
 # FLAC encoding (lossless)
 proctap --pid 12345 --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0 output.flac
 
-# Custom sample rate and mono output
-proctap --pid 12345 --sample-rate 44100 --channels 1 --stdout | ffmpeg -f s16le -ar 44100 -ac 1 -i pipe:0 output.wav
+# Native float32 output (no conversion)
+proctap --pid 12345 --format float32 --stdout | ffmpeg -f f32le -ar 48000 -ac 2 -i pipe:0 output.mp3
 ```
 
 **CLI Options:**
@@ -141,13 +141,9 @@ proctap --pid 12345 --sample-rate 44100 --channels 1 --stdout | ffmpeg -f s16le 
 | `--pid PID` | Process ID to capture (required if `--name` not used) |
 | `--name NAME` | Process name to capture (e.g., `VRChat.exe` or `VRChat`) |
 | `--stdout` | Output raw PCM to stdout for piping (required) |
-| `--sample-rate RATE` | Sample rate in Hz (default: 48000) |
-| `--channels {1,2}` | Number of channels: 1=mono, 2=stereo (default: 2) |
-| `--native-converter` | **Windows only:** Enable SIMD native converter pipeline (beta) |
-| `--quality {low,high}` | **Windows only:** Resampling quality for native converter (`low`=linear, `high`=libsamplerate) |
+| `--format {int16,float32}` | Output format: int16 or float32 (default: int16) |
 | `--verbose` | Enable verbose logging to stderr |
-
-> **Windows note:** The native converter still emits s16le PCM on stdout, but moves int16→float32 + resampling into a SIMD-optimized C++ path. `--quality high` requires `libsamplerate`; install the optional extra `pip install proc-tap[hq-resample]` or point `LIBSAMPLERATE_PATH` to the directory containing `libsamplerate-0.dll`.
+| `--list-audio-procs` | List all processes currently playing audio |
 
 **Finding Process IDs:**
 
@@ -161,21 +157,19 @@ ps aux | grep VRChat
 
 **FFmpeg Format Arguments:**
 
-The CLI outputs raw PCM in s16le (signed 16-bit little-endian) format by default, but can be customized via `--sample-rate` and `--channels` options. FFmpeg needs these arguments:
-- `-f s16le`: PCM format
-- `-ar RATE`: Sample rate (must match `--sample-rate`, default 48000)
-- `-ac CHANNELS`: Number of channels (must match `--channels`, default 2)
+The CLI outputs raw PCM at 48kHz stereo. FFmpeg needs these arguments based on `--format`:
+
+**int16 (default):**
+- `-f s16le`: Signed 16-bit little-endian PCM
+- `-ar 48000`: Sample rate (48kHz, fixed)
+- `-ac 2`: Channels (stereo, fixed)
 - `-i pipe:0`: Read from stdin
 
-## 🚀 Native Converter Benchmark (Windows)
-
-Use the helper script to quickly sanity-check throughput and latency of the SIMD converter:
-
-```bash
-python benchmarks/benchmark_native_converter.py --quality high --seconds 5 --iterations 20
-```
-
-It generates synthetic audio, converts it to the fixed 48kHz/float32 format, and reports realtime factors for both low-latency (linear) and high-quality (libsamplerate) modes. Requires the native extension to be built (Windows only).
+**float32:**
+- `-f f32le`: 32-bit float little-endian PCM
+- `-ar 48000`: Sample rate (48kHz, fixed)
+- `-ac 2`: Channels (stereo, fixed)
+- `-i pipe:0`: Read from stdin
 
 ---
 
@@ -186,10 +180,6 @@ It generates synthetic audio, converts it to the fixed 48kHz/float32 format, and
 - Python 3.10+
 - WASAPI support
 - **No admin privileges required**
-- 🧪 **Native SIMD converter (beta, Windows-only)**:
-  - Enable with `--native-converter` (CLI) or `StreamConfig(use_native_converter=True)`
-  - `--quality high` uses libsamplerate (install `pip install proc-tap[hq-resample]` or set `LIBSAMPLERATE_PATH` to `libsamplerate-0.dll`)
-  - Automatically falls back to the Python converter if SIMD extension or libsamplerate is unavailable
 
 **Linux (Fully Supported - v0.3.0+):**
 - Linux with PulseAudio or PipeWire
@@ -207,13 +197,14 @@ It generates synthetic audio, converts it to the fixed 48kHz/float32 format, and
 - ✅ **Per-process isolation** using null-sink strategy
 - ✅ **Graceful fallback** chain: Native → PipeWire subprocess → PulseAudio
 
-**macOS (Experimental):**
-- macOS 14.4 (Sonoma) or later
+**macOS (Officially Supported - v0.4.0+):**
+- macOS 13.0 (Ventura) or later (macOS 13+ recommended)
 - Python 3.10+
-- Swift CLI helper binary (proctap-macos)
-- Audio capture permission
-- ⚠️ **EXPERIMENTAL:** Core Audio Process Tap API support implemented
-- ⚠️ **REQUIREMENT:** Requires macOS 14.4+ for Process Tap API
+- Swift helper binary (screencapture-audio)
+- Screen Recording permission (automatically prompted)
+- ✅ **ScreenCaptureKit Backend:** Apple Silicon compatible, no AMFI/SIP hacks needed
+- ✅ **Simple Permissions:** Screen Recording only (no Microphone/TCC hacks)
+- ✅ **Low Latency:** ~10-15ms audio capture
 
 ---
 
@@ -291,28 +282,25 @@ asyncio.run(main())
 
 ### Audio Format
 
-**Native Backend Format** (Windows WASAPI, hardcoded in C++):
+**Windows Backend Format** (WASAPI, returned to Python):
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| Sample Rate | **44,100 Hz** | CD quality (fixed in C++) |
-| Channels | **2** | Stereo (fixed in C++) |
-| Bit Depth | **16-bit** | PCM format (fixed in C++) |
+| Sample Rate | **48,000 Hz** | Professional audio quality |
+| Channels | **2** | Stereo |
+| Format | **float32** | IEEE 754 floating point (-1.0 to +1.0) |
+| Fallback | **44.1kHz int16** | Auto-converted to 48kHz float32 if float32 init fails |
 
-**Output Format Conversion** (v0.2.1+):
+**Important Note:** For WAV file output, you must convert float32 to int16:
 
-The `StreamConfig` class controls the **output format** through automatic conversion:
-- Native format → converted to match your `StreamConfig` settings
-- Supports sample rate conversion (e.g., 44.1kHz → 48kHz)
-- Supports channel conversion (mono ↔ stereo)
-- Supports bit depth conversion (8/16/24/32-bit)
-- Zero overhead when formats match (automatic bypass)
-
-Example:
 ```python
-# Get audio as 48kHz mono 24-bit
-config = StreamConfig(sample_rate=48000, channels=1, width=3)
-tap = ProcTap(pid, config=config)
+import numpy as np
+
+def on_data(pcm: bytes, frames: int):
+    # Convert float32 to int16 for WAV files
+    float_samples = np.frombuffer(pcm, dtype=np.float32)
+    int16_samples = (np.clip(float_samples, -1.0, 1.0) * 32767).astype(np.int16)
+    wav.writeframes(int16_samples.tobytes())
 ```
 
 ---
@@ -324,6 +312,66 @@ tap = ProcTap(pid, config=config)
 - 🎙 Feed high-SNR audio into AI recognition models
 - 📹 Alternative to OBS "Application Audio Capture"
 - 🎧 Capture DAW/app playback for analysis tools
+
+---
+
+## 🎨 Advanced Features (Contrib)
+
+ProcTap includes optional contrib modules for advanced audio processing:
+
+### 📊 Real-Time Audio Analysis & Visualization
+
+Monitor and analyze audio from processes in real-time with spectrum analysis, volume meters, and frequency visualization.
+
+**CLI Mode** (Terminal-based):
+```bash
+# Analyze by process ID
+python -m proctap.contrib.analysis --pid 12345
+
+# Analyze by process name
+python -m proctap.contrib.analysis --name "VRChat.exe"
+```
+
+**GUI Mode** (Matplotlib window):
+```bash
+# Launch GUI visualizer
+python -m proctap.contrib.analysis --pid 12345 --gui
+
+# Adjust FFT size for better frequency resolution
+python -m proctap.contrib.analysis --pid 12345 --gui --fft-size 4096
+```
+
+**Features:**
+- 📈 **Real-time spectrum analyzer** (FFT-based frequency analysis)
+- 🔊 **Volume meters** (RMS and peak levels in dB)
+- 🎵 **Frequency band analysis** (Sub, Bass, Mid, Treble, Presence, Brilliance)
+- 💻 **Terminal visualization** (CLI mode) or 📊 **Matplotlib plots** (GUI mode)
+- ⚙️ **Configurable FFT size** (512, 1024, 2048, 4096, 8192)
+
+**Programmatic Usage:**
+```python
+from proctap import ProcessAudioCapture
+from proctap.contrib import AudioAnalyzer, CLIVisualizer
+
+# Create analyzer
+analyzer = AudioAnalyzer(sample_rate=48000, fft_size=2048)
+
+# Create callback for audio processing
+def on_audio(pcm: bytes, frames: int):
+    analyzer.process_audio(pcm)
+
+# Start audio capture with callback
+tap = ProcessAudioCapture(pid=12345, on_data=on_audio)
+tap.start()
+
+# Create and run visualizer
+visualizer = CLIVisualizer(analyzer)
+visualizer.start()  # Blocking - displays in terminal
+```
+
+**Optional Dependencies:**
+- CLI mode: Included (uses numpy/scipy)
+- GUI mode: Requires `matplotlib` (`pip install matplotlib`)
 
 ---
 
@@ -411,7 +459,7 @@ finally:
 
 ---
 
-## 🍎 macOS Example
+## 🍎 macOS Example (v0.4.0+)
 
 ```python
 from proctap import ProcessAudioCapture, StreamConfig
@@ -434,25 +482,27 @@ config = StreamConfig(sample_rate=48000, channels=2)
 try:
     with ProcessAudioCapture(pid, config=config, on_data=on_data):
         print("⚠️  Make sure the process is actively playing audio!")
-        print("⚠️  On first run, macOS will prompt for permission.")
+        print("⚠️  On first run, macOS will prompt for Screen Recording permission.")
         input("Recording... Press Enter to stop.\n")
 finally:
     wav.close()
 ```
 
-**macOS-specific requirements:**
-- macOS 14.4 (Sonoma) or later
-- Swift CLI helper binary (proctap-macos) - automatically built during installation if Swift toolchain available
-- Audio capture permission - macOS will prompt on first run
+**macOS-specific requirements (v0.4.0+):**
+- macOS 13.0 (Ventura) or later
+- Swift helper binary (screencapture-audio) - automatically built during installation
+- Screen Recording permission - macOS will prompt on first run
 - The target process must be actively playing audio
-- See [examples/macos_basic.py](examples/macos_basic.py) for a complete example
+- Works with bundleID-based capture (PID is automatically converted to bundleID)
+- See [examples/macos_screencapture_test.py](examples/macos_screencapture_test.py) for a complete example
 
 **Building the Swift helper manually:**
 ```bash
-cd swift/proctap-macos
+cd src/proctap/swift/screencapture-audio
 swift build -c release
-cp .build/release/proctap-macos ../../src/proctap/bin/
 ```
+
+**Note:** The ScreenCaptureKit backend (v0.4.0+) is recommended over the experimental PyObjC/C extension backends.
 
 ---
 
@@ -474,9 +524,10 @@ pip install -e .
 - System dependencies: `pulseaudio-utils` or `pipewire` with `libpipewire-0.3-dev`
 
 **macOS:**
-- No C++ compiler required (pure Python)
-- Swift toolchain (optional, for building the Swift CLI helper)
-- If Swift is not available, pre-built binary is included in the package
+- Swift toolchain required for building the ScreenCaptureKit helper (v0.4.0+)
+- Xcode Command Line Tools: `xcode-select --install`
+- No C++ compiler required (pure Python backend)
+- Helper binary location: `src/proctap/swift/screencapture-audio/`
 
 ---
 
@@ -493,7 +544,7 @@ Contributions are welcome! We have structured issue templates to help guide your
 **Special Interest:**
 - PRs from WASAPI/C++ experts are especially appreciated
 - **Linux backend improvements** (PulseAudio/PipeWire per-app isolation)
-- **macOS backend testing** (Core Audio Process Tap on macOS 14.4+)
+- **macOS backend testing** (ScreenCaptureKit on macOS 13+)
 - Cross-platform testing and compatibility
 - Performance profiling and optimization
 

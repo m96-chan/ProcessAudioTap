@@ -3,40 +3,33 @@ Backend selection module for ProcTap.
 
 Automatically selects the appropriate audio capture backend based on the
 current operating system.
+
+All backends return audio in standard format: 48kHz/2ch/float32
 """
 
 from __future__ import annotations
 
-import sys
 import platform
-from typing import TYPE_CHECKING
-
-from ..format import ResamplingQuality
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from .base import AudioBackend
 
+ResampleQuality = Literal['best', 'medium', 'fast']
 
-def get_backend(
-    pid: int,
-    sample_rate: int = 48000,
-    channels: int = 2,
-    sample_width: int = 4,
-    sample_format: str = "f32",
-    resample_quality: ResamplingQuality | None = None,
-    use_native_converter: bool = False,
-) -> "AudioBackend":
+
+def get_backend(pid: int, resample_quality: ResampleQuality = 'best') -> "AudioBackend":
     """
     Get the appropriate audio capture backend for the current platform.
 
+    All backends return audio in the standard format:
+    - Sample rate: 48000 Hz
+    - Channels: 2 (stereo)
+    - Sample format: float32 (IEEE 754, normalized to [-1.0, 1.0])
+
     Args:
         pid: Process ID to capture audio from
-        sample_rate: Sample rate in Hz (default: 48000)
-        channels: Number of channels (default: 2 for stereo)
-        sample_width: Bytes per sample (default: 4 for float32)
-        sample_format: Sample format (default: "f32" for float32)
-        resample_quality: Resampling quality setting
-        use_native_converter: Whether to use native converter (Windows only)
+        resample_quality: Resampling quality mode ('best', 'medium', 'fast')
 
     Returns:
         Platform-specific AudioBackend implementation
@@ -49,23 +42,17 @@ def get_backend(
 
     if system == "Windows":
         from .windows import WindowsBackend
-        return WindowsBackend(
-            pid=pid,
-            sample_rate=sample_rate,
-            channels=channels,
-            sample_width=sample_width,
-            sample_format=sample_format,
-            resample_quality=resample_quality,
-            use_native_converter=use_native_converter,
-        )
+        return WindowsBackend(pid=pid, resample_quality=resample_quality)
 
     elif system == "Linux":
         from .linux import LinuxBackend
+        # LinuxBackend now returns standard format (48kHz/2ch/float32)
         return LinuxBackend(
             pid=pid,
-            sample_rate=sample_rate,
-            channels=channels,
-            sample_width=sample_width,
+            sample_rate=44100,  # Native format (will be converted to 48kHz)
+            channels=2,
+            sample_width=2,  # Native format: 16-bit int (will be converted to float32)
+            resample_quality=resample_quality,
         )
 
     elif system == "Darwin":  # macOS
@@ -82,11 +69,10 @@ def get_backend(
             from .macos_screencapture import ScreenCaptureBackend, is_available as sc_available
             if sc_available():
                 log.info("Using ScreenCaptureKit backend (Recommended - macOS 13+)")
+                # ScreenCaptureKit already returns standard format (48kHz/2ch/float32)
                 return ScreenCaptureBackend(
                     pid=pid,
-                    sample_rate=sample_rate,
-                    channels=channels,
-                    sample_width=sample_width,
+                    resample_quality=resample_quality,
                 )
         except ImportError as e:
             log.debug(f"ScreenCaptureKit backend not available: {e}")
@@ -101,9 +87,9 @@ def get_backend(
                 )
                 return MacOSNativeBackend(
                     pid=pid,
-                    sample_rate=sample_rate,
-                    channels=channels,
-                    sample_width=sample_width,
+                    sample_rate=48000,  # Native format (will be converted if needed)
+                    channels=2,
+                    sample_width=2,  # Native format: 16-bit int (will be converted to float32)
                 )
         except ImportError:
             log.debug("PyObjC backend not available")
@@ -112,7 +98,7 @@ def get_backend(
         raise RuntimeError(
             "No macOS backend available.\n"
             "Option 1 (Recommended): Build ScreenCaptureKit backend:\n"
-            "  cd swift/screencapture-audio && swift build\n"
+            "  cd src/proctap/swift/screencapture-audio && swift build\n"
             "  Requires: macOS 13+ (Ventura), Screen Recording permission\n"
             "Option 2 (Fallback): Install PyObjC:\n"
             "  pip install pyobjc-core pyobjc-framework-CoreAudio\n"

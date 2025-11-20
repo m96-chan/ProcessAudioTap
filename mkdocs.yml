@@ -116,23 +116,22 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
-    - Examples: getting-started/examples.md
-  - User Guide:
-    - Basic Usage: guide/basic-usage.md
-    - Async API: guide/async-api.md
-    - Audio Format: guide/audio-format.md
-    - Error Handling: guide/error-handling.md
+    # - Examples: getting-started/examples.md  # TODO: Create this page
+  # - User Guide:
+    # - Basic Usage: guide/basic-usage.md  # TODO: Create this page
+    # - Async API: guide/async-api.md  # TODO: Create this page
+    # - Audio Format: guide/audio-format.md  # TODO: Create this page
+    # - Error Handling: guide/error-handling.md  # TODO: Create this page
   - API Reference:
     - ProcessAudioCapture: api/processaudiotap.md
-    - StreamConfig: api/streamconfig.md
-    - Contrib Modules: api/contrib.md
-  - Advanced:
-    - Architecture: advanced/architecture.md
-    - Performance: advanced/performance.md
-    - Building from Source: advanced/building.md
-  - Contributing:
-    - Development Guide: contributing/development.md
-    - Issue Templates: contributing/issues.md
+    # - Contrib Modules: api/contrib.md  # TODO: Create this page
+  # - Advanced:
+    # - Architecture: advanced/architecture.md  # TODO: Create this page
+    # - Performance: advanced/performance.md  # TODO: Create this page
+    # - Building from Source: advanced/building.md  # TODO: Create this page
+  # - Contributing:
+    # - Development Guide: contributing/development.md  # TODO: Create this page
+    # - Issue Templates: contributing/issues.md  # TODO: Create this page
   - Changelog: changelog.md
 
 extra:

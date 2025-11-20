@@ -1,6 +1,6 @@
 # ProcTap
 
-**Per-Process Audio Capture for Windows**
+**Cross-Platform Per-Process Audio Capture**
 
 [![PyPI version](https://img.shields.io/pypi/v/proc-tap?color=blue&logo=pypi&logoColor=white)](https://pypi.org/project/proc-tap/)
 [![Python versions](https://img.shields.io/pypi/pyversions/proc-tap?logo=python&logoColor=white)](https://pypi.org/project/proc-tap/)
@@ -9,34 +9,42 @@
 
 ---
 
-ProcTap is a Python library with a high-performance C++ backend that enables **per-process audio capture** on Windows 10/11 (20H1+) using `ActivateAudioInterfaceAsync`.
+ProcTap is a cross-platform Python library that enables **per-process audio capture** with platform-optimized backends:
+
+- **Windows**: WASAPI Process Loopback (C++ native extension)
+- **Linux**: PipeWire Native / PulseAudio (fully supported)
+- **macOS**: ScreenCaptureKit (officially supported, v0.4.0+)
 
 It lets you capture audio from a **specific process only** — without system sounds or other app audio mixed in.
 
 ## Key Features
 
 - 🎧 **Per-Process Audio Isolation** - Capture from a single target process (games, browsers, DAWs, etc.)
-- ⚡ **Modern WASAPI** - Uses `ActivateAudioInterfaceAsync` for stable capture
-- 🧵 **Low-Latency C++ Engine** - 44.1 kHz / stereo / 16-bit PCM format
+- 🌍 **Cross-Platform** - Windows 10/11+ | Linux (PipeWire/PulseAudio) | macOS 13+
+- ⚡ **Platform-Optimized Backends** - WASAPI (Windows), PipeWire/PulseAudio (Linux), ScreenCaptureKit (macOS)
+- 🧵 **Low-Latency Audio Engine** - 10-15ms latency across all platforms
 - 🐍 **Python-Friendly API** - Callback-based and async iterator patterns
-- 🔌 **Native Extension** - High-throughput PCM delivery
-- 🪟 **Windows-Only** - Requires Windows 10/11 (20H1+)
+- 🔌 **Native Performance** - C++ extension (Windows), native APIs (Linux/macOS)
 
 ## Quick Example
 
 ```python
 from proctap import ProcessAudioCapture
 import wave
+import numpy as np
 
 # Open WAV file for writing
 wav = wave.open("output.wav", "wb")
 wav.setnchannels(2)
 wav.setsampwidth(2)  # 16-bit PCM
-wav.setframerate(44100)
+wav.setframerate(48000)
 
-# Callback to write audio data
+# Callback to convert float32 to int16 and write
 def on_data(pcm, frames):
-    wav.writeframes(pcm)
+    # Convert float32 to int16 for WAV
+    float_samples = np.frombuffer(pcm, dtype=np.float32)
+    int16_samples = (np.clip(float_samples, -1.0, 1.0) * 32767).astype(np.int16)
+    wav.writeframes(int16_samples.tobytes())
 
 # Start capturing from process ID 12345
 with ProcessAudioCapture(pid=12345, on_data=on_data):
@@ -63,17 +71,30 @@ For development installation and building from source, see the [Installation Gui
 
 ## Requirements
 
+### Windows (Fully Supported)
 - **OS**: Windows 10 / 11 (20H1 or later)
 - **Python**: 3.10+
 - **WASAPI**: Built into Windows
 - **Privileges**: No administrator rights required
+
+### Linux (Fully Supported)
+- **OS**: Linux with PulseAudio or PipeWire
+- **Python**: 3.10+
+- **System Packages**: `pulseaudio-utils` or `pipewire`
+- **Auto-detection**: Graceful fallback between backends
+
+### macOS (Officially Supported - v0.4.0+)
+- **OS**: macOS 13.0 (Ventura) or later
+- **Python**: 3.10+
+- **Backend**: ScreenCaptureKit (bundleID-based)
+- **Permissions**: Screen Recording (automatically prompted)
+- **Requirements**: Swift toolchain for building helper binary
 
 ## Next Steps
 
 - [Installation Guide](getting-started/installation.md) - Install ProcTap
 - [Quick Start](getting-started/quickstart.md) - Get started in 5 minutes
 - [API Reference](api/processaudiotap.md) - Detailed API documentation
-- [Examples](getting-started/examples.md) - More usage examples
 
 ## Support
 

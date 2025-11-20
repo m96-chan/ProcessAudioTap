@@ -6,12 +6,15 @@ or PipeWire with native support for both.
 
 STATUS: Experimental - PulseAudio and PipeWire support implemented (v0.3.0+)
 
+IMPORTANT: Always returns audio in standard format (48kHz/2ch/float32)
+
 Features:
 - Automatic detection of PipeWire vs PulseAudio
 - Native PipeWire support via pw-record
 - PulseAudio support via parec
 - Per-process audio isolation using null-sink strategy
 - Graceful fallback between backends
+- Automatic format conversion to standard format
 
 Requirements:
 - pulsectl library (pip install pulsectl)
@@ -29,7 +32,14 @@ import threading
 import subprocess
 import os
 
-from .base import AudioBackend
+from .base import (
+    AudioBackend,
+    STANDARD_SAMPLE_RATE,
+    STANDARD_CHANNELS,
+    STANDARD_FORMAT,
+    STANDARD_SAMPLE_WIDTH,
+)
+from .converter import AudioConverter, SampleFormat
 
 # Try to import native PipeWire bindings
 try:
@@ -142,7 +152,7 @@ class LinuxAudioStrategy(ABC):
         pass
 
     @abstractmethod
-    def get_format(self) -> dict[str, int | object]:
+    def get_format(self) -> dict[str, int | str]:
         """
         Get audio format information.
 
@@ -566,7 +576,7 @@ class PulseAudioStrategy(LinuxAudioStrategy):
             self._pulse = None
             logger.debug("Closed PulseAudio connection")
 
-    def get_format(self) -> dict[str, int | object]:
+    def get_format(self) -> dict[str, int | str]:
         """Get audio format information."""
         return {
             'sample_rate': self._sample_rate,
@@ -900,7 +910,7 @@ class PipeWireStrategy(LinuxAudioStrategy):
             self._pulse = None
             logger.debug("Closed PipeWire connection")
 
-    def get_format(self) -> dict[str, int | object]:
+    def get_format(self) -> dict[str, int | str]:
         """Get audio format information."""
         return {
             'sample_rate': self._sample_rate,
@@ -1067,7 +1077,7 @@ class PipeWireNativeStrategy(LinuxAudioStrategy):
         self.stop_capture()
         logger.debug("Closed PipeWire native strategy")
 
-    def get_format(self) -> dict[str, int | object]:
+    def get_format(self) -> dict[str, int | str]:
         """Get audio format information."""
         return {
             'sample_rate': self._sample_rate,
@@ -1131,20 +1141,27 @@ class LinuxBackend(AudioBackend):
         channels: int = 2,
         sample_width: int = 2,
         engine: str = "auto",
+        resample_quality: str = 'best',
     ) -> None:
         """
         Initialize Linux backend.
 
+        This backend always converts audio to the standard format:
+        - 48000 Hz
+        - 2 channels (stereo)
+        - float32 (IEEE 754, normalized to [-1.0, 1.0])
+
         Args:
             pid: Process ID to capture audio from
-            sample_rate: Sample rate in Hz (default: 44100)
-            channels: Number of channels (default: 2 for stereo)
-            sample_width: Bytes per sample (default: 2 for 16-bit)
+            sample_rate: Native sample rate in Hz (default: 44100)
+            channels: Native number of channels (default: 2 for stereo)
+            sample_width: Native bytes per sample (default: 2 for 16-bit)
             engine: Audio engine to use: "auto", "pulse", "pipewire", or "pipewire-native"
                    - "auto": Auto-detect (prefers native PipeWire if available)
                    - "pipewire-native": Native PipeWire API (ultra-low latency)
                    - "pipewire": PipeWire via subprocess (pw-record)
                    - "pulse": PulseAudio via subprocess (parec)
+            resample_quality: Resampling quality mode ('best', 'medium', 'fast')
         """
         super().__init__(pid)
 
@@ -1254,6 +1271,27 @@ class LinuxBackend(AudioBackend):
                 f"Use 'auto', 'pulse', 'pipewire', or 'pipewire-native'"
             )
 
+        # Setup audio format converter
+        # Linux backends always capture as int16, so we need to convert to float32
+        src_format = SampleFormat.INT16
+        self._converter = AudioConverter(
+            src_rate=sample_rate,
+            src_channels=channels,
+            src_width=sample_width,
+            src_format=src_format,
+            dst_rate=STANDARD_SAMPLE_RATE,
+            dst_channels=STANDARD_CHANNELS,
+            dst_width=STANDARD_SAMPLE_WIDTH,
+            dst_format=SampleFormat.FLOAT32,
+            resample_quality=resample_quality,  # type: ignore[arg-type]
+        )
+        logger.info(
+            f"Audio format conversion enabled: "
+            f"{sample_rate}Hz/{channels}ch/{src_format} -> "
+            f"{STANDARD_SAMPLE_RATE}Hz/{STANDARD_CHANNELS}ch/float32 "
+            f"(quality={resample_quality})"
+        )
+
     def start(self) -> None:
         """
         Start audio capture from the target process.
@@ -1303,21 +1341,41 @@ class LinuxBackend(AudioBackend):
         Read audio data from the capture buffer.
 
         Returns:
-            PCM audio data as bytes, or None if no data is available
+            PCM audio data as bytes in standard format (48kHz/2ch/float32),
+            or None if no data is available
         """
         if not self._is_running:
             return None
 
-        return self._strategy.read_audio(timeout=0.1)
+        data = self._strategy.read_audio(timeout=0.1)
 
-    def get_format(self) -> dict[str, int | object]:
+        # Apply format conversion
+        if self._converter and data:
+            try:
+                data = self._converter.convert(data)
+            except Exception as e:
+                logger.error(f"Error converting audio format: {e}")
+                return b''
+
+        return data
+
+    def get_format(self) -> dict[str, int | str]:
         """
-        Get audio format information.
+        Get audio format information (always returns standard format).
 
         Returns:
-            Dictionary with 'sample_rate', 'channels', 'bits_per_sample'
+            Dictionary with:
+            - 'sample_rate': 48000
+            - 'channels': 2
+            - 'bits_per_sample': 32
+            - 'sample_format': 'float32'
         """
-        return self._strategy.get_format()
+        return {
+            'sample_rate': STANDARD_SAMPLE_RATE,
+            'channels': STANDARD_CHANNELS,
+            'bits_per_sample': STANDARD_SAMPLE_WIDTH * 8,
+            'sample_format': STANDARD_FORMAT,
+        }
 
     def close(self) -> None:
         """Clean up resources."""

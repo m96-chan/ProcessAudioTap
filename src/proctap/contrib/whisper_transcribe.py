@@ -105,7 +105,7 @@ def find_pid_by_name(process_name: str) -> int:
         RuntimeError: If process not found or psutil not available
     """
     try:
-        import psutil
+        import psutil  # type: ignore[import-untyped]
     except ImportError:
         raise RuntimeError(
             "psutil is required to find process by name. "
@@ -171,12 +171,13 @@ class RealtimeTranscriber:
         self.language = language
         self.use_vad = use_vad
 
-        # Audio will be converted from fixed format (48kHz stereo float32) to Whisper format (16kHz mono)
-        # Audio buffer for converted audio
+        # Note: Captures at 48kHz/2ch/float32 (standard format)
+        # Will resample to 16kHz mono for Whisper below
+
+        # Audio buffer (converted to 16kHz/mono/int16)
         self.audio_buffer = bytearray()
         self.buffer_lock = threading.Lock()
-        # Calculate buffer size for 16kHz mono 16-bit
-        self.chunk_size_bytes = int(16000 * 2 * chunk_duration)  # 2 bytes per sample
+        self.chunk_size_bytes = int(16000 * 2 * chunk_duration)  # 16kHz, 2 bytes/sample, mono
 
         # ProcessAudioCapture instance
         self.tap: Optional[ProcessAudioCapture] = None
@@ -223,12 +224,33 @@ class RealtimeTranscriber:
         """
         Callback function to receive audio data from ProcessAudioCapture.
 
+        Receives 48kHz/2ch/float32 and converts to 16kHz/mono/int16 for Whisper.
+
         Args:
-            pcm_data: Raw PCM audio data
+            pcm_data: Raw PCM audio data (48kHz/2ch/float32)
             frames: Number of audio frames (not used)
         """
+        # Convert 48kHz/2ch/float32 to 16kHz/mono/int16 for Whisper
+        audio_float32 = np.frombuffer(pcm_data, dtype=np.float32)
+
+        # Reshape to (samples, 2) for stereo
+        if len(audio_float32) % 2 == 0:
+            audio_stereo = audio_float32.reshape(-1, 2)
+            # Convert stereo to mono by averaging
+            audio_mono = audio_stereo.mean(axis=1)
+        else:
+            audio_mono = audio_float32
+
+        # Resample 48kHz -> 16kHz (downsample by 3x)
+        from scipy import signal
+        audio_16k = signal.resample_poly(audio_mono, 1, 3)
+
+        # Convert to int16 for Whisper
+        audio_int16 = (np.clip(audio_16k, -1.0, 1.0) * 32767).astype(np.int16)
+        pcm_converted = audio_int16.tobytes()
+
         with self.buffer_lock:
-            self.audio_buffer.extend(pcm_data)
+            self.audio_buffer.extend(pcm_converted)
 
     def transcribe_chunk(self, audio_data: bytes) -> str:
         """
@@ -322,10 +344,9 @@ class RealtimeTranscriber:
 
         print(f"\nStarting audio capture from PID {self.pid}...")
 
-        # Create and start ProcessAudioCapture
+        # Create and start ProcessAudioCapture (captures at 48kHz/2ch/float32)
         self.tap = ProcessAudioCapture(
             pid=self.pid,
-            config=self.config,
             on_data=self.on_audio_data
         )
         self.tap.start()

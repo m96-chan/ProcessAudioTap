@@ -25,7 +25,7 @@ import threading
 import struct
 from pathlib import Path
 
-from .base import AudioBackend
+from .base import AudioBackend  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +103,8 @@ class MacOSBackend(AudioBackend):
     macOS implementation using Core Audio Process Tap API.
 
     This backend uses a Swift CLI helper (proctap-macos) that interfaces with
-    Core Audio Process Tap API (macOS 14.4+) to capture audio from a specific
-    process.
+    Core Audio Process Tap API (macOS 14.4+) to capture audio from specific
+    processes or all processes except excluded ones.
 
     The helper outputs raw PCM audio to stdout, which is read by this Python backend.
 
@@ -113,10 +113,16 @@ class MacOSBackend(AudioBackend):
     - Swift CLI helper binary (proctap-macos)
     - Audio capture permission
 
+    Features:
+    - Capture from specific PIDs (include_pids)
+    - Exclude specific PIDs from capture (exclude_pids)
+    - Support for multiple processes simultaneously
+
     Limitations:
     - Requires macOS 14.4+
     - Target process must be actively playing audio
     - Requires user permission for audio capture
+    - Max 8 PIDs for include/exclude lists
     """
 
     def __init__(
@@ -125,20 +131,52 @@ class MacOSBackend(AudioBackend):
         sample_rate: int = 48000,
         channels: int = 2,
         sample_width: int = 2,
+        include_pids: Optional[list[int]] = None,
+        exclude_pids: Optional[list[int]] = None,
+        device: Optional[str] = None,
     ) -> None:
         """
         Initialize macOS backend.
 
         Args:
-            pid: Process ID to capture audio from
+            pid: Main process ID to capture audio from (for backward compatibility)
             sample_rate: Sample rate in Hz (default: 48000)
             channels: Number of channels (default: 2 for stereo)
             sample_width: Bytes per sample (default: 2 for 16-bit)
+            include_pids: List of PIDs to include (optional, overrides pid if provided)
+            exclude_pids: List of PIDs to exclude (optional)
+            device: Output device UID or "default" (optional)
 
         Raises:
             RuntimeError: If macOS version < 14.4 or helper binary not found
+
+        Examples:
+            # Capture from specific process
+            backend = MacOSBackend(pid=1234)
+
+            # Capture from multiple processes
+            backend = MacOSBackend(pid=1234, include_pids=[1234, 5678])
+
+            # Capture all except specific processes
+            backend = MacOSBackend(pid=0, exclude_pids=[5678])
+
+            # Capture game + voice, exclude music
+            backend = MacOSBackend(pid=1234, include_pids=[1234, 2222], exclude_pids=[5678])
         """
         super().__init__(pid)
+
+        # Build include PIDs list
+        if include_pids is not None:
+            self._include_pids = include_pids
+        elif pid > 0:
+            # Backward compatibility: use pid as single include
+            self._include_pids = [pid]
+        else:
+            # No include list: capture all processes
+            self._include_pids = []
+
+        self._exclude_pids = exclude_pids if exclude_pids is not None else []
+        self._device = device
 
         # Check macOS version
         if not supports_process_tap():
@@ -168,14 +206,24 @@ class MacOSBackend(AudioBackend):
         self._stop_event = threading.Event()
         self._is_running = False
 
-        logger.info(
-            f"Initialized MacOSBackend for PID {pid} "
-            f"({sample_rate}Hz, {channels}ch, {self._bits_per_sample}bit)"
-        )
+        # Log configuration
+        if self._include_pids:
+            logger.info(
+                f"Initialized MacOSBackend for PIDs {self._include_pids} "
+                f"({sample_rate}Hz, {channels}ch, {self._bits_per_sample}bit)"
+            )
+        else:
+            logger.info(
+                f"Initialized MacOSBackend for all processes "
+                f"({sample_rate}Hz, {channels}ch, {self._bits_per_sample}bit)"
+            )
+
+        if self._exclude_pids:
+            logger.info(f"Excluding PIDs: {self._exclude_pids}")
 
     def start(self) -> None:
         """
-        Start audio capture from the target process.
+        Start audio capture from the target process(es).
 
         Raises:
             RuntimeError: If capture fails to start
@@ -188,10 +236,21 @@ class MacOSBackend(AudioBackend):
             # Build command to launch Swift helper
             cmd = [
                 str(self._helper_path),
-                "--pid", str(self._pid),
                 "--sample-rate", str(self._sample_rate),
                 "--channels", str(self._channels),
             ]
+
+            # Add include PIDs if specified
+            if self._include_pids:
+                cmd.extend(["--include-pids", ",".join(map(str, self._include_pids))])
+
+            # Add exclude PIDs if specified
+            if self._exclude_pids:
+                cmd.extend(["--exclude-pids", ",".join(map(str, self._exclude_pids))])
+
+            # Add device if specified
+            if self._device:
+                cmd.extend(["--device", self._device])
 
             logger.debug(f"Launching helper: {' '.join(cmd)}")
 

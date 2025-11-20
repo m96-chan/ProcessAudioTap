@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Optional, AsyncIterator
+from typing import Callable, Optional, AsyncIterator, Literal
 import threading
 import queue
 import asyncio
@@ -13,25 +13,33 @@ logger = logging.getLogger(__name__)
 # -------------------------------
 
 from .backends import get_backend
-from .backends.base import AudioBackend
-from .format import ResamplingQuality, FIXED_AUDIO_FORMAT, get_frame_count
+from .backends.base import (
+    AudioBackend,
+    STANDARD_SAMPLE_RATE,
+    STANDARD_CHANNELS,
+    STANDARD_FORMAT,
+    STANDARD_SAMPLE_WIDTH,
+)
 
 AudioCallback = Callable[[bytes, int], None]  # (pcm_bytes, num_frames)
+
+# Resample quality modes
+ResampleQuality = Literal['best', 'medium', 'fast']
 
 
 class ProcessAudioCapture:
     """
     High-level API for process-specific audio capture.
 
-    All audio output is standardized to:
-    - Sample rate: 48,000 Hz
+    All captured audio is returned in standard format:
+    - Sample rate: 48000 Hz
     - Channels: 2 (stereo)
-    - Format: float32, normalized to [-1.0, 1.0]
+    - Sample format: float32 (IEEE 754, normalized to [-1.0, 1.0])
 
     Supports multiple platforms:
     - Windows: WASAPI Process Loopback (fully implemented)
-    - Linux: PulseAudio/PipeWire (fully implemented)
-    - macOS: Core Audio Process Tap (experimental)
+    - Linux: PulseAudio/PipeWire (experimental)
+    - macOS: Core Audio (experimental)
 
     Usage:
     - Callback mode: start(on_data=callback)
@@ -42,23 +50,28 @@ class ProcessAudioCapture:
         self,
         pid: int,
         on_data: Optional[AudioCallback] = None,
+        resample_quality: ResampleQuality = 'best',
     ) -> None:
+        """
+        Initialize process audio capture.
+
+        Args:
+            pid: Process ID to capture audio from
+            on_data: Optional callback for audio data (callback mode)
+            resample_quality: Resampling quality mode when format conversion is needed
+                - 'best': Highest quality, ~1.3-1.4ms latency (default)
+                - 'medium': Medium quality, ~0.7-0.9ms latency
+                - 'fast': Lowest quality, ~0.3-0.5ms latency
+        """
         self._pid = pid
         self._on_data = on_data
+        self._resample_quality = resample_quality
 
-        # All audio is converted to the standardized format
-        logger.debug(f"Using standardized audio format: {FIXED_AUDIO_FORMAT.sample_rate}Hz, {FIXED_AUDIO_FORMAT.channels}ch, {FIXED_AUDIO_FORMAT.sample_format}")
-        
-        # Get platform-specific backend with fixed format
-        self._backend = get_backend(
-            pid=pid,
-            sample_rate=FIXED_AUDIO_FORMAT.sample_rate,
-            channels=FIXED_AUDIO_FORMAT.channels,
-            sample_width=4,  # 4 bytes for float32
-            sample_format=FIXED_AUDIO_FORMAT.sample_format,
-        )
+        # Get platform-specific backend (always returns standard format)
+        self._backend: AudioBackend = get_backend(pid=pid, resample_quality=resample_quality)
 
         logger.debug(f"Using backend: {type(self._backend).__name__}")
+        logger.debug(f"Standard format: {STANDARD_SAMPLE_RATE}Hz, {STANDARD_CHANNELS}ch, {STANDARD_FORMAT}")
 
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -69,10 +82,7 @@ class ProcessAudioCapture:
     def start(self) -> None:
         if self._thread is not None:
             # すでに start 済みなら何もしない
-            logger.debug("Already started, skipping")
             return
-
-        logger.debug("Starting ProcessAudioCapture...")
 
         # Start platform-specific backend
         self._backend.start()
@@ -80,8 +90,6 @@ class ProcessAudioCapture:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
-
-        logger.debug(f"Worker thread started: {self._thread.name}, is_alive: {self._thread.is_alive()}")
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -102,7 +110,7 @@ class ProcessAudioCapture:
         self.start()
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, _exc_type, _exc, _tb) -> None:
         self.close()
 
     # --- properties -----------------------------------------------------
@@ -117,6 +125,25 @@ class ProcessAudioCapture:
         """Get the target process ID."""
         return self._pid
 
+    @property
+    def format(self) -> dict[str, int | str]:
+        """
+        Get the audio format information (always returns standard format).
+
+        Returns:
+            Dictionary with:
+            - 'sample_rate': 48000
+            - 'channels': 2
+            - 'bits_per_sample': 32
+            - 'sample_format': 'float32'
+        """
+        return {
+            'sample_rate': STANDARD_SAMPLE_RATE,
+            'channels': STANDARD_CHANNELS,
+            'bits_per_sample': STANDARD_SAMPLE_WIDTH * 8,
+            'sample_format': STANDARD_FORMAT,
+        }
+
     # --- utility methods ------------------------------------------------
 
     def set_callback(self, callback: Optional[AudioCallback]) -> None:
@@ -130,21 +157,16 @@ class ProcessAudioCapture:
 
     def get_format(self) -> dict[str, int | str]:
         """
-        Get audio format information.
+        Get audio format information from the backend.
 
         Returns:
-            Dictionary with standardized format information:
-            - 'sample_rate': 48000 Hz
-            - 'channels': 2 (stereo)
-            - 'sample_format': 'f32' (float32)
+            Dictionary with keys:
+            - 'sample_rate': 48000
+            - 'channels': 2
             - 'bits_per_sample': 32
+            - 'sample_format': 'float32'
         """
-        return {
-            'sample_rate': FIXED_AUDIO_FORMAT.sample_rate,
-            'channels': FIXED_AUDIO_FORMAT.channels,
-            'sample_format': FIXED_AUDIO_FORMAT.sample_format,
-            'bits_per_sample': 32,  # float32
-        }
+        return self._backend.get_format()
 
     def read(self, timeout: float = 1.0) -> Optional[bytes]:
         """
@@ -154,7 +176,7 @@ class ProcessAudioCapture:
             timeout: Maximum time to wait for data in seconds
 
         Returns:
-            PCM audio data as bytes, or None if timeout or no data
+            PCM audio data as bytes (48kHz/2ch/float32), or None if timeout or no data
 
         Note:
             This is a simple synchronous alternative to the async API.
@@ -173,6 +195,7 @@ class ProcessAudioCapture:
     async def iter_chunks(self) -> AsyncIterator[bytes]:
         """
         Async generator that yields PCM chunks as bytes.
+        All chunks are in standard format: 48kHz/2ch/float32.
         """
         loop = asyncio.get_running_loop()
 
@@ -191,7 +214,6 @@ class ProcessAudioCapture:
             -> callback
             -> async_queue
         """
-        logger.debug(f"Worker thread started, on_data callback is {'set' if self._on_data else 'None'}")
         while not self._stop_event.is_set():
             try:
                 data = self._backend.read()
@@ -200,20 +222,15 @@ class ProcessAudioCapture:
                 continue
 
             if not data:
-                # パケットがまだ無いケース。短時間 sleep してCPU消費を抑える
-                import time
-                time.sleep(0.01)  # 10ms sleep
+                # パケットがまだ無いケース。ここで sleep 入れるかは後で調整。
                 continue
-
-            logger.debug(f"Received {len(data)} bytes from backend")
 
             # callback
             if self._on_data is not None:
                 try:
-                    # Calculate frames using standardized format
-                    frames = get_frame_count(data)
-                    logger.debug(f"Calling on_data callback with {len(data)} bytes ({frames} frames)")
-                    self._on_data(data, frames)
+                    # frames 数は backend から直接取れないので、とりあえず -1 を渡す。
+                    # TODO: calculate frame count from data length and format
+                    self._on_data(data, -1)
                 except Exception:
                     logger.exception("Error in audio callback")
 

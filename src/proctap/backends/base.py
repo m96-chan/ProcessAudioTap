@@ -1,11 +1,27 @@
 """
 Abstract base class for platform-specific audio capture backends.
+
+STANDARD FORMAT:
+All backends MUST convert audio to this standard format:
+- Sample rate: 48000 Hz
+- Channels: 2 (stereo)
+- Sample format: float32 (IEEE 754)
+- Value range: [-1.0, 1.0] (normalized)
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Optional
+import numpy as np
+
+
+# Standard audio format constants for all backends
+STANDARD_SAMPLE_RATE = 48000
+STANDARD_CHANNELS = 2
+STANDARD_FORMAT = 'float32'
+STANDARD_DTYPE = np.float32
+STANDARD_SAMPLE_WIDTH = 4  # bytes (32-bit float)
 
 
 class AudioBackend(ABC):
@@ -64,15 +80,15 @@ class AudioBackend(ABC):
         pass
 
     @abstractmethod
-    def get_format(self) -> dict[str, int | object]:
+    def get_format(self) -> dict[str, int | str]:
         """
         Get audio format information.
 
         Returns:
             Dictionary with keys:
-            - 'sample_rate': Sample rate in Hz (e.g., 44100)
+            - 'sample_rate': Sample rate in Hz (e.g., 48000)
             - 'channels': Number of channels (e.g., 2 for stereo)
-            - 'bits_per_sample': Bits per sample (e.g., 16)
-            - Additional backend-specific keys may be present
+            - 'bits_per_sample': Bits per sample (e.g., 32)
+            - 'sample_format': Format string (e.g., 'float32')
         """
         pass

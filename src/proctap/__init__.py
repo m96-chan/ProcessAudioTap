@@ -8,7 +8,20 @@ except PackageNotFoundError:
     # 開発中の editable install やビルド前など
     __version__ = "0.0.0"
 
-from .core import ProcessAudioCapture
-from .format import ResamplingQuality, FIXED_AUDIO_FORMAT
+from .core import ProcessAudioCapture, ResampleQuality
+from .backends.base import (
+    STANDARD_SAMPLE_RATE,
+    STANDARD_CHANNELS,
+    STANDARD_FORMAT,
+    STANDARD_SAMPLE_WIDTH,
+)
 
-__all__ = ["ProcessAudioCapture", "ResamplingQuality", "FIXED_AUDIO_FORMAT", "__version__"]
+__all__ = [
+    "ProcessAudioCapture",
+    "ResampleQuality",
+    "STANDARD_SAMPLE_RATE",
+    "STANDARD_CHANNELS",
+    "STANDARD_FORMAT",
+    "STANDARD_SAMPLE_WIDTH",
+    "__version__"
+]

@@ -214,6 +214,9 @@ profiling_results/
 *.prof
 *.pstats
 
+# Claude test files
+.claude_test/
+
 # Swift build artifacts
 **/.build/
 .build/
