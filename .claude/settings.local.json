@@ -21,7 +21,8 @@
       "Bash(ffprobe:*)",
       "Bash(git add:*)",
       "Bash(git restore:*)",
-      "Bash(git tag:*)"
+      "Bash(git tag:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []
