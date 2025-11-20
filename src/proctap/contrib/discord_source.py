@@ -11,7 +11,7 @@ import logging
 import threading
 import time
 from collections import deque
-from typing import Optional, cast
+from typing import Optional
 
 import numpy as np
 
@@ -23,7 +23,7 @@ except ImportError as e:
         "Install with: pip install discord.py"
     ) from e
 
-from ..core import ProcessAudioCapture, StreamConfig
+from ..core import ProcessAudioCapture
 
 logger = logging.getLogger(__name__)
 
@@ -97,16 +97,11 @@ class ProcessAudioSource(discord.AudioSource):
 
         logger.info(f"Starting audio capture for PID {self.pid}")
 
-        # Create ProcessAudioCapture with Discord format
-        config = StreamConfig(
-            sample_rate=DISCORD_SAMPLE_RATE,
-            channels=DISCORD_CHANNELS,
-            sample_width=DISCORD_SAMPLE_SIZE
-        )
-        self._tap = ProcessAudioCapture(pid=self.pid, config=config)
+        # Create ProcessAudioCapture (captures at standard 48kHz/2ch/float32)
+        self._tap = ProcessAudioCapture(pid=self.pid)
         self._tap.start()
 
-        logger.info(f"Discord format configured: {DISCORD_SAMPLE_RATE}Hz, {DISCORD_CHANNELS}ch, {DISCORD_SAMPLE_SIZE*8}bit")
+        logger.info(f"Capture format: {DISCORD_SAMPLE_RATE}Hz, {DISCORD_CHANNELS}ch, float32 (will convert to int16)")
 
         # Start capture thread
         self._stop_event.clear()
@@ -146,13 +141,13 @@ class ProcessAudioSource(discord.AudioSource):
     def _capture_loop(self) -> None:
         """
         Capture loop running in separate thread.
-        Reads pre-converted audio from ProcessAudioCapture and applies gain.
+        Reads float32 audio from ProcessAudioCapture, applies gain, and converts to int16.
         """
         logger.debug("Capture loop started")
 
         while not self._stop_event.is_set():
             try:
-                # Read audio with timeout
+                # Read audio with timeout (48kHz/2ch/float32)
                 if self._tap is None:
                     break
                 chunk = self._tap.read(timeout=0.5)
@@ -160,14 +155,21 @@ class ProcessAudioSource(discord.AudioSource):
                 if chunk is None or len(chunk) == 0:
                     continue
 
-                # Apply gain if needed
+                # Convert float32 to int16 for Discord
+                audio_array = np.frombuffer(chunk, dtype=np.float32)
+
+                # Apply gain
                 if self.gain != 1.0:
-                    chunk = self._apply_gain(chunk)
+                    audio_array = audio_array * self.gain
+
+                # Convert to int16 (Discord format)
+                audio_int16 = (np.clip(audio_array, -1.0, 1.0) * 32767).astype(np.int16)
+                chunk_int16 = audio_int16.tobytes()
 
                 # Queue the audio chunk
                 with self._queue_lock:
                     try:
-                        self._audio_queue.append(chunk)
+                        self._audio_queue.append(chunk_int16)
                     except IndexError:
                         # Queue full, frame dropped
                         self._frames_dropped += 1
@@ -178,30 +180,6 @@ class ProcessAudioSource(discord.AudioSource):
 
         logger.debug("Capture loop ended")
 
-    def _apply_gain(self, chunk: bytes) -> bytes:
-        """
-        Apply gain to 16-bit PCM audio data.
-
-        Args:
-            chunk: Raw 16-bit PCM audio data
-
-        Returns:
-            Audio data with gain applied
-        """
-        try:
-            # Parse as 16-bit PCM (already converted by StreamConfig)
-            audio_data = np.frombuffer(chunk, dtype=np.int16)
-
-            # Apply gain with clipping
-            audio_data = audio_data.astype(np.float32)
-            audio_data = np.clip(audio_data * self.gain, -32768, 32767)
-            audio_data = audio_data.astype(np.int16)
-
-            return cast(bytes, audio_data.tobytes())
-
-        except Exception:
-            logger.exception("Error applying gain")
-            return chunk  # Return original on error
 
     def read(self) -> bytes:
         """

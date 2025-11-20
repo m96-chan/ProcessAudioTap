@@ -112,7 +112,7 @@ else:
 
 setup(
     name="proc-tap",
-    version="0.1.0",
+    version="0.3.0",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     ext_modules=ext_modules,

@@ -31,16 +31,20 @@ It lets you capture audio from a **specific process only** — without system so
 ```python
 from proctap import ProcessAudioCapture
 import wave
+import numpy as np
 
 # Open WAV file for writing
 wav = wave.open("output.wav", "wb")
 wav.setnchannels(2)
 wav.setsampwidth(2)  # 16-bit PCM
-wav.setframerate(44100)
+wav.setframerate(48000)
 
-# Callback to write audio data
+# Callback to convert float32 to int16 and write
 def on_data(pcm, frames):
-    wav.writeframes(pcm)
+    # Convert float32 to int16 for WAV
+    float_samples = np.frombuffer(pcm, dtype=np.float32)
+    int16_samples = (np.clip(float_samples, -1.0, 1.0) * 32767).astype(np.int16)
+    wav.writeframes(int16_samples.tobytes())
 
 # Start capturing from process ID 12345
 with ProcessAudioCapture(pid=12345, on_data=on_data):

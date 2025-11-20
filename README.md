@@ -49,7 +49,7 @@ Ideal for VRChat, games, DAWs, browsers, and AI audio analysis pipelines.
   → macOS: ScreenCaptureKit API (macOS 13+, bundleID-based, v0.4.0+)
 
 - 🧵 **Low-latency, thread-safe audio engine**
-  → 44.1 kHz / stereo / 16-bit PCM format (Windows)
+  → 48 kHz / stereo / float32 format (Windows)
 
 - 🐍 **Python-friendly high-level API**
   - Callback-based streaming
@@ -130,8 +130,8 @@ proctap --name "VRChat.exe" --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0
 # FLAC encoding (lossless)
 proctap --pid 12345 --stdout | ffmpeg -f s16le -ar 48000 -ac 2 -i pipe:0 output.flac
 
-# Custom sample rate and mono output
-proctap --pid 12345 --sample-rate 44100 --channels 1 --stdout | ffmpeg -f s16le -ar 44100 -ac 1 -i pipe:0 output.wav
+# Native float32 output (no conversion)
+proctap --pid 12345 --format float32 --stdout | ffmpeg -f f32le -ar 48000 -ac 2 -i pipe:0 output.mp3
 ```
 
 **CLI Options:**
@@ -141,9 +141,9 @@ proctap --pid 12345 --sample-rate 44100 --channels 1 --stdout | ffmpeg -f s16le 
 | `--pid PID` | Process ID to capture (required if `--name` not used) |
 | `--name NAME` | Process name to capture (e.g., `VRChat.exe` or `VRChat`) |
 | `--stdout` | Output raw PCM to stdout for piping (required) |
-| `--sample-rate RATE` | Sample rate in Hz (default: 48000) |
-| `--channels {1,2}` | Number of channels: 1=mono, 2=stereo (default: 2) |
+| `--format {int16,float32}` | Output format: int16 or float32 (default: int16) |
 | `--verbose` | Enable verbose logging to stderr |
+| `--list-audio-procs` | List all processes currently playing audio |
 
 **Finding Process IDs:**
 
@@ -157,10 +157,18 @@ ps aux | grep VRChat
 
 **FFmpeg Format Arguments:**
 
-The CLI outputs raw PCM in s16le (signed 16-bit little-endian) format by default, but can be customized via `--sample-rate` and `--channels` options. FFmpeg needs these arguments:
-- `-f s16le`: PCM format
-- `-ar RATE`: Sample rate (must match `--sample-rate`, default 48000)
-- `-ac CHANNELS`: Number of channels (must match `--channels`, default 2)
+The CLI outputs raw PCM at 48kHz stereo. FFmpeg needs these arguments based on `--format`:
+
+**int16 (default):**
+- `-f s16le`: Signed 16-bit little-endian PCM
+- `-ar 48000`: Sample rate (48kHz, fixed)
+- `-ac 2`: Channels (stereo, fixed)
+- `-i pipe:0`: Read from stdin
+
+**float32:**
+- `-f f32le`: 32-bit float little-endian PCM
+- `-ar 48000`: Sample rate (48kHz, fixed)
+- `-ac 2`: Channels (stereo, fixed)
 - `-i pipe:0`: Read from stdin
 
 ---
@@ -274,28 +282,25 @@ asyncio.run(main())
 
 ### Audio Format
 
-**Native Backend Format** (Windows WASAPI, hardcoded in C++):
+**Windows Backend Format** (WASAPI, returned to Python):
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| Sample Rate | **44,100 Hz** | CD quality (fixed in C++) |
-| Channels | **2** | Stereo (fixed in C++) |
-| Bit Depth | **16-bit** | PCM format (fixed in C++) |
+| Sample Rate | **48,000 Hz** | Professional audio quality |
+| Channels | **2** | Stereo |
+| Format | **float32** | IEEE 754 floating point (-1.0 to +1.0) |
+| Fallback | **44.1kHz int16** | Auto-converted to 48kHz float32 if float32 init fails |
 
-**Output Format Conversion** (v0.2.1+):
+**Important Note:** For WAV file output, you must convert float32 to int16:
 
-The `StreamConfig` class controls the **output format** through automatic conversion:
-- Native format → converted to match your `StreamConfig` settings
-- Supports sample rate conversion (e.g., 44.1kHz → 48kHz)
-- Supports channel conversion (mono ↔ stereo)
-- Supports bit depth conversion (8/16/24/32-bit)
-- Zero overhead when formats match (automatic bypass)
-
-Example:
 ```python
-# Get audio as 48kHz mono 24-bit
-config = StreamConfig(sample_rate=48000, channels=1, width=3)
-tap = ProcTap(pid, config=config)
+import numpy as np
+
+def on_data(pcm: bytes, frames: int):
+    # Convert float32 to int16 for WAV files
+    float_samples = np.frombuffer(pcm, dtype=np.float32)
+    int16_samples = (np.clip(float_samples, -1.0, 1.0) * 32767).astype(np.int16)
+    wav.writeframes(int16_samples.tobytes())
 ```
 
 ---
@@ -307,6 +312,66 @@ tap = ProcTap(pid, config=config)
 - 🎙 Feed high-SNR audio into AI recognition models
 - 📹 Alternative to OBS "Application Audio Capture"
 - 🎧 Capture DAW/app playback for analysis tools
+
+---
+
+## 🎨 Advanced Features (Contrib)
+
+ProcTap includes optional contrib modules for advanced audio processing:
+
+### 📊 Real-Time Audio Analysis & Visualization
+
+Monitor and analyze audio from processes in real-time with spectrum analysis, volume meters, and frequency visualization.
+
+**CLI Mode** (Terminal-based):
+```bash
+# Analyze by process ID
+python -m proctap.contrib.analysis --pid 12345
+
+# Analyze by process name
+python -m proctap.contrib.analysis --name "VRChat.exe"
+```
+
+**GUI Mode** (Matplotlib window):
+```bash
+# Launch GUI visualizer
+python -m proctap.contrib.analysis --pid 12345 --gui
+
+# Adjust FFT size for better frequency resolution
+python -m proctap.contrib.analysis --pid 12345 --gui --fft-size 4096
+```
+
+**Features:**
+- 📈 **Real-time spectrum analyzer** (FFT-based frequency analysis)
+- 🔊 **Volume meters** (RMS and peak levels in dB)
+- 🎵 **Frequency band analysis** (Sub, Bass, Mid, Treble, Presence, Brilliance)
+- 💻 **Terminal visualization** (CLI mode) or 📊 **Matplotlib plots** (GUI mode)
+- ⚙️ **Configurable FFT size** (512, 1024, 2048, 4096, 8192)
+
+**Programmatic Usage:**
+```python
+from proctap import ProcessAudioCapture
+from proctap.contrib import AudioAnalyzer, CLIVisualizer
+
+# Create analyzer
+analyzer = AudioAnalyzer(sample_rate=48000, fft_size=2048)
+
+# Create callback for audio processing
+def on_audio(pcm: bytes, frames: int):
+    analyzer.process_audio(pcm)
+
+# Start audio capture with callback
+tap = ProcessAudioCapture(pid=12345, on_data=on_audio)
+tap.start()
+
+# Create and run visualizer
+visualizer = CLIVisualizer(analyzer)
+visualizer.start()  # Blocking - displays in terminal
+```
+
+**Optional Dependencies:**
+- CLI mode: Included (uses numpy/scipy)
+- GUI mode: Requires `matplotlib` (`pip install matplotlib`)
 
 ---
 

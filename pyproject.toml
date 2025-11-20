@@ -8,7 +8,7 @@ version = "0.4.0"
 description = "Cross-platform process-level audio capture library"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "m96-chan", email = "y_harada@technologies.moe"}
 ]
@@ -16,7 +16,6 @@ keywords = ["audio", "capture", "wasapi", "windows", "linux", "macos", "pulseaud
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: Microsoft :: Windows :: Windows 10",
     "Operating System :: Microsoft :: Windows :: Windows 11",

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Callable, Optional, AsyncIterator
+from typing import Callable, Optional, AsyncIterator, Literal
 import threading
 import queue
 import asyncio
@@ -14,30 +13,33 @@ logger = logging.getLogger(__name__)
 # -------------------------------
 
 from .backends import get_backend
-from .backends.base import AudioBackend
+from .backends.base import (
+    AudioBackend,
+    STANDARD_SAMPLE_RATE,
+    STANDARD_CHANNELS,
+    STANDARD_FORMAT,
+    STANDARD_SAMPLE_WIDTH,
+)
 
 AudioCallback = Callable[[bytes, int], None]  # (pcm_bytes, num_frames)
 
-
-@dataclass
-class StreamConfig:
-    sample_rate: int = 44100   # Hz
-    channels: int = 2
-    sample_width: int = 2  # Bytes per sample (2 = 16-bit)
-    # NOTE:
-    # 現状 backend 側でバッファサイズは制御していないので
-    # frames_per_buffer は「論理的なサイズ」として扱うだけ。
-    frames_per_buffer: int = 480  # 10ms @ 48kHz
+# Resample quality modes
+ResampleQuality = Literal['best', 'medium', 'fast']
 
 
 class ProcessAudioCapture:
     """
     High-level API for process-specific audio capture.
 
+    All captured audio is returned in standard format:
+    - Sample rate: 48000 Hz
+    - Channels: 2 (stereo)
+    - Sample format: float32 (IEEE 754, normalized to [-1.0, 1.0])
+
     Supports multiple platforms:
     - Windows: WASAPI Process Loopback (fully implemented)
-    - Linux: PulseAudio/PipeWire (under development)
-    - macOS: Core Audio (planned, not yet implemented)
+    - Linux: PulseAudio/PipeWire (experimental)
+    - macOS: Core Audio (experimental)
 
     Usage:
     - Callback mode: start(on_data=callback)
@@ -47,70 +49,29 @@ class ProcessAudioCapture:
     def __init__(
         self,
         pid: int,
-        config: StreamConfig | None = None,
         on_data: Optional[AudioCallback] = None,
+        resample_quality: ResampleQuality = 'best',
     ) -> None:
+        """
+        Initialize process audio capture.
+
+        Args:
+            pid: Process ID to capture audio from
+            on_data: Optional callback for audio data (callback mode)
+            resample_quality: Resampling quality mode when format conversion is needed
+                - 'best': Highest quality, ~1.3-1.4ms latency (default)
+                - 'medium': Medium quality, ~0.7-0.9ms latency
+                - 'fast': Lowest quality, ~0.3-0.5ms latency
+        """
         self._pid = pid
         self._on_data = on_data
+        self._resample_quality = resample_quality
 
-        # Declare backend type
-        self._backend: AudioBackend
-
-        # If config is None, backend will use native format (no conversion)
-        # Otherwise, backend will convert to the specified format
-        if config is None:
-            # Create a temporary backend to get native format
-            temp_backend = get_backend(
-                pid=pid,
-                sample_rate=44100,  # Default values (will be replaced)
-                channels=2,
-                sample_width=2,
-            )
-            native_format = temp_backend.get_format()
-
-            # Extract and validate format values
-            sample_rate_val = native_format['sample_rate']
-            channels_val = native_format['channels']
-            bits_per_sample_val = native_format['bits_per_sample']
-
-            # Type guard: ensure we have int values
-            assert isinstance(sample_rate_val, int), f"Expected int for sample_rate, got {type(sample_rate_val)}"
-            assert isinstance(channels_val, int), f"Expected int for channels, got {type(channels_val)}"
-            assert isinstance(bits_per_sample_val, int), f"Expected int for bits_per_sample, got {type(bits_per_sample_val)}"
-
-            sample_rate = sample_rate_val
-            channels = channels_val
-            bits_per_sample = bits_per_sample_val
-
-            # Create StreamConfig from native format
-            self._cfg = StreamConfig(
-                sample_rate=sample_rate,
-                channels=channels,
-                frames_per_buffer=int(sample_rate * 0.01),  # 10ms
-            )
-
-            # Re-create backend with native format (no conversion needed)
-            self._backend = get_backend(
-                pid=pid,
-                sample_rate=self._cfg.sample_rate,
-                channels=self._cfg.channels,
-                sample_width=bits_per_sample // 8,
-            )
-            logger.debug(
-                f"Using native format: {self._cfg.sample_rate}Hz, "
-                f"{self._cfg.channels}ch, {native_format['bits_per_sample']}bit"
-            )
-        else:
-            self._cfg = config
-            # Get platform-specific backend with specified format
-            self._backend = get_backend(
-                pid=pid,
-                sample_rate=self._cfg.sample_rate,
-                channels=self._cfg.channels,
-                sample_width=2,  # 16-bit = 2 bytes
-            )
+        # Get platform-specific backend (always returns standard format)
+        self._backend: AudioBackend = get_backend(pid=pid, resample_quality=resample_quality)
 
         logger.debug(f"Using backend: {type(self._backend).__name__}")
+        logger.debug(f"Standard format: {STANDARD_SAMPLE_RATE}Hz, {STANDARD_CHANNELS}ch, {STANDARD_FORMAT}")
 
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -149,7 +110,7 @@ class ProcessAudioCapture:
         self.start()
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, _exc_type, _exc, _tb) -> None:
         self.close()
 
     # --- properties -----------------------------------------------------
@@ -165,9 +126,23 @@ class ProcessAudioCapture:
         return self._pid
 
     @property
-    def config(self) -> StreamConfig:
-        """Get the stream configuration (note: does not affect native backend)."""
-        return self._cfg
+    def format(self) -> dict[str, int | str]:
+        """
+        Get the audio format information (always returns standard format).
+
+        Returns:
+            Dictionary with:
+            - 'sample_rate': 48000
+            - 'channels': 2
+            - 'bits_per_sample': 32
+            - 'sample_format': 'float32'
+        """
+        return {
+            'sample_rate': STANDARD_SAMPLE_RATE,
+            'channels': STANDARD_CHANNELS,
+            'bits_per_sample': STANDARD_SAMPLE_WIDTH * 8,
+            'sample_format': STANDARD_FORMAT,
+        }
 
     # --- utility methods ------------------------------------------------
 
@@ -180,34 +155,18 @@ class ProcessAudioCapture:
         """
         self._on_data = callback
 
-    def get_format(self) -> dict[str, int]:
+    def get_format(self) -> dict[str, int | str]:
         """
-        Get audio format information from the native backend.
+        Get audio format information from the backend.
 
         Returns:
             Dictionary with keys:
-            - 'sample_rate': Sample rate in Hz (e.g., 44100)
-            - 'channels': Number of channels (e.g., 2 for stereo)
-            - 'bits_per_sample': Bits per sample (e.g., 16)
+            - 'sample_rate': 48000
+            - 'channels': 2
+            - 'bits_per_sample': 32
+            - 'sample_format': 'float32'
         """
-        fmt = self._backend.get_format()
-
-        # Extract and validate format values
-        sample_rate_val = fmt['sample_rate']
-        channels_val = fmt['channels']
-        bits_per_sample_val = fmt['bits_per_sample']
-
-        # Type guard: ensure we have int values
-        assert isinstance(sample_rate_val, int), f"Expected int for sample_rate, got {type(sample_rate_val)}"
-        assert isinstance(channels_val, int), f"Expected int for channels, got {type(channels_val)}"
-        assert isinstance(bits_per_sample_val, int), f"Expected int for bits_per_sample, got {type(bits_per_sample_val)}"
-
-        # Return only int values for basic format info
-        return {
-            'sample_rate': sample_rate_val,
-            'channels': channels_val,
-            'bits_per_sample': bits_per_sample_val,
-        }
+        return self._backend.get_format()
 
     def read(self, timeout: float = 1.0) -> Optional[bytes]:
         """
@@ -217,7 +176,7 @@ class ProcessAudioCapture:
             timeout: Maximum time to wait for data in seconds
 
         Returns:
-            PCM audio data as bytes, or None if timeout or no data
+            PCM audio data as bytes (48kHz/2ch/float32), or None if timeout or no data
 
         Note:
             This is a simple synchronous alternative to the async API.
@@ -236,6 +195,7 @@ class ProcessAudioCapture:
     async def iter_chunks(self) -> AsyncIterator[bytes]:
         """
         Async generator that yields PCM chunks as bytes.
+        All chunks are in standard format: 48kHz/2ch/float32.
         """
         loop = asyncio.get_running_loop()
 
@@ -269,7 +229,7 @@ class ProcessAudioCapture:
             if self._on_data is not None:
                 try:
                     # frames 数は backend から直接取れないので、とりあえず -1 を渡す。
-                    # TODO: _backend.get_format() を見て frame 数を計算する改善余地あり。
+                    # TODO: calculate frame count from data length and format
                     self._on_data(data, -1)
                 except Exception:
                     logger.exception("Error in audio callback")

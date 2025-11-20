@@ -326,16 +326,17 @@ public:
             return E_OUTOFMEMORY;
         }
 
-        // CD品質のPCMフォーマット (Microsoft公式サンプルと同じ)
-        m_waveFormat->wFormatTag = WAVE_FORMAT_PCM;
+        // Standard format: 48kHz, float32, stereo (preferred for optimal quality)
+        // Try float32 first for optimal quality and performance
+        m_waveFormat->wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
         m_waveFormat->nChannels = 2;
-        m_waveFormat->nSamplesPerSec = 44100;
-        m_waveFormat->wBitsPerSample = 16;
+        m_waveFormat->nSamplesPerSec = 48000;
+        m_waveFormat->wBitsPerSample = 32;
         m_waveFormat->nBlockAlign = m_waveFormat->nChannels * m_waveFormat->wBitsPerSample / 8;
         m_waveFormat->nAvgBytesPerSec = m_waveFormat->nSamplesPerSec * m_waveFormat->nBlockAlign;
         m_waveFormat->cbSize = 0;
 
-        OutputDebugStringA("INFO: Using hardcoded PCM format (44.1kHz, 16-bit, stereo)\n");
+        OutputDebugStringA("INFO: Attempting 48kHz, float32, stereo format\n");
 
         // オーディオクライアントを初期化
         // AUDCLNT_STREAMFLAGS_EVENTCALLBACKは使わず、ポーリング方式で実装
@@ -350,12 +351,91 @@ public:
 
         if (FAILED(hr)) {
             char errorMsg[256];
-            sprintf_s(errorMsg, "ERROR: IAudioClient->Initialize failed with HRESULT=0x%08X\n", hr);
+            sprintf_s(errorMsg, "WARNING: 48kHz float32 failed (0x%08X), falling back to 44.1kHz int16\n", hr);
             OutputDebugStringA(errorMsg);
-            return hr;
+
+            // Fallback: CD品質のPCMフォーマット (Microsoft公式サンプルと同じ)
+            // プロセスループバックではGetMixFormat()がE_NOTIMPLを返すため、
+            // Microsoftの公式サンプルに従ってハードコードされたフォーマットを使用
+            m_waveFormat->wFormatTag = WAVE_FORMAT_PCM;
+            m_waveFormat->nChannels = 2;
+            m_waveFormat->nSamplesPerSec = 44100;
+            m_waveFormat->wBitsPerSample = 16;
+            m_waveFormat->nBlockAlign = m_waveFormat->nChannels * m_waveFormat->wBitsPerSample / 8;
+            m_waveFormat->nAvgBytesPerSec = m_waveFormat->nSamplesPerSec * m_waveFormat->nBlockAlign;
+            m_waveFormat->cbSize = 0;
+
+            OutputDebugStringA("INFO: Using fallback PCM format (44.1kHz, 16-bit, stereo)\n");
+
+            // Retry with fallback format
+            hr = m_audioClient->Initialize(
+                AUDCLNT_SHAREMODE_SHARED,
+                AUDCLNT_STREAMFLAGS_LOOPBACK,
+                10000000, // 1秒
+                0,
+                m_waveFormat,
+                nullptr
+            );
+
+            if (FAILED(hr)) {
+                sprintf_s(errorMsg, "ERROR: IAudioClient->Initialize failed even with fallback format (0x%08X)\n", hr);
+                OutputDebugStringA(errorMsg);
+                return hr;
+            }
+
+            OutputDebugStringA("INFO: Fallback format initialization succeeded\n");
+        } else {
+            OutputDebugStringA("INFO: 48kHz float32 format initialization succeeded\n");
         }
 
-        OutputDebugStringA("INFO: IAudioClient initialized successfully\n");
+        // IMPORTANT: In LOOPBACK mode, the actual format returned by WASAPI may differ
+        // from what we specified. We must query the actual mix format being used.
+        WAVEFORMATEX* pActualFormat = nullptr;
+        hr = m_audioClient->GetMixFormat(&pActualFormat);
+
+        if (SUCCEEDED(hr) && pActualFormat != nullptr) {
+            // Log the actual format we're receiving
+            char formatMsg[512];
+            sprintf_s(formatMsg,
+                "INFO: Actual WASAPI format: %u Hz, %u channels, %u bits per sample, format tag 0x%04X\n",
+                pActualFormat->nSamplesPerSec,
+                pActualFormat->nChannels,
+                pActualFormat->wBitsPerSample,
+                pActualFormat->wFormatTag
+            );
+            OutputDebugStringA(formatMsg);
+
+            // Check if actual format differs from what we requested
+            if (pActualFormat->nSamplesPerSec != m_waveFormat->nSamplesPerSec ||
+                pActualFormat->wBitsPerSample != m_waveFormat->wBitsPerSample ||
+                pActualFormat->wFormatTag != m_waveFormat->wFormatTag) {
+
+                sprintf_s(formatMsg,
+                    "WARNING: Actual format differs from requested! Requested: %u Hz, %u bits, tag 0x%04X\n",
+                    m_waveFormat->nSamplesPerSec,
+                    m_waveFormat->wBitsPerSample,
+                    m_waveFormat->wFormatTag
+                );
+                OutputDebugStringA(formatMsg);
+
+                // Update m_waveFormat to reflect the actual format
+                CoTaskMemFree(m_waveFormat);
+                m_waveFormat = pActualFormat;
+                pActualFormat = nullptr; // Ownership transferred
+
+                OutputDebugStringA("INFO: Updated internal format to match actual WASAPI output\n");
+            } else {
+                // Format matches, free the queried format
+                CoTaskMemFree(pActualFormat);
+                OutputDebugStringA("INFO: Actual format matches requested format\n");
+            }
+        } else {
+            // GetMixFormat failed - this is expected for process-specific loopback
+            // We'll trust our initialized format
+            char errorMsg[256];
+            sprintf_s(errorMsg, "WARNING: GetMixFormat failed (0x%08X), trusting initialized format\n", hr);
+            OutputDebugStringA(errorMsg);
+        }
 
         // IAudioCaptureClientを取得
         hr = m_audioClient->GetService(__uuidof(IAudioCaptureClient), (void**)&m_captureClient);
@@ -414,6 +494,17 @@ public:
             return hr;
         }
 
+        // Log the system mix format
+        char formatMsg[512];
+        sprintf_s(formatMsg,
+            "INFO: System mix format: %u Hz, %u channels, %u bits per sample, format tag 0x%04X\n",
+            m_waveFormat->nSamplesPerSec,
+            m_waveFormat->nChannels,
+            m_waveFormat->wBitsPerSample,
+            m_waveFormat->wFormatTag
+        );
+        OutputDebugStringA(formatMsg);
+
         // オーディオクライアントを初期化
         hr = m_audioClient->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
@@ -427,6 +518,8 @@ public:
         if (FAILED(hr)) {
             return hr;
         }
+
+        OutputDebugStringA("INFO: System-wide loopback initialization succeeded\n");
 
         // IAudioCaptureClientを取得
         hr = m_audioClient->GetService(__uuidof(IAudioCaptureClient), (void**)&m_captureClient);

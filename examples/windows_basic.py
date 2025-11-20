@@ -1,8 +1,9 @@
-from proctap import ProcessAudioCapture, StreamConfig
+from proctap import ProcessAudioCapture
 import wave
 import argparse
 import psutil
 import sys
+import numpy as np
 
 
 def find_pid_by_name(process_name: str) -> int:
@@ -58,29 +59,33 @@ def main():
         pid = args.pid
         print(f"Using PID: {pid}")
 
-    # Audio format configuration (48kHz stereo)
-    # WASAPI native format (44.1kHz) will be automatically converted to 48kHz
-    config = StreamConfig(
-        sample_rate=48000,
-        channels=2,
-    )
+    # Audio format configuration
+    # WASAPI native format: 48kHz, float32, stereo
+    # Output format: 48kHz, 16-bit PCM, stereo
+    sample_rate = 48000
+    channels = 2
 
     # WAVファイルの設定
     wav = wave.open(args.output, "wb")
-    wav.setnchannels(config.channels)
+    wav.setnchannels(channels)
     wav.setsampwidth(2)  # 16bit PCM
-    wav.setframerate(config.sample_rate)
+    wav.setframerate(sample_rate)
 
     def on_data(pcm, frames):
-        wav.writeframes(pcm)
+        # Convert float32 to int16
+        # Backend returns float32 data (4 bytes per sample)
+        float_samples = np.frombuffer(pcm, dtype=np.float32)
+        # Clip to [-1.0, 1.0] and convert to int16
+        int16_samples = (np.clip(float_samples, -1.0, 1.0) * 32767).astype(np.int16)
+        wav.writeframes(int16_samples.tobytes())
 
     print(f"Recording audio from PID {pid} to '{args.output}'")
-    print(f"Format: {config.sample_rate}Hz, {config.channels}ch, 16-bit PCM")
-    print("(WASAPI native 44.1kHz will be automatically converted to 48kHz)")
+    print(f"Format: {sample_rate}Hz, {channels}ch, 16-bit PCM")
+    print("(WASAPI native format: 48kHz float32, converted to 16-bit PCM)")
     print("Press Enter to stop recording...")
 
     try:
-        with ProcessAudioCapture(pid, config=config, on_data=on_data):
+        with ProcessAudioCapture(pid, on_data=on_data):
             input()
     except KeyboardInterrupt:
         print("\nRecording stopped by user")

@@ -261,7 +261,7 @@ class MacOSBackend(AudioBackend):
         except queue.Empty:
             return None
 
-    def get_format(self) -> dict[str, int | object]:
+    def get_format(self) -> dict[str, int | str]:
         """
         Get audio format information.
 
